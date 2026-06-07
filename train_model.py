@@ -25,13 +25,22 @@ def train_lgb_model(data_dir, output_model_path):
     print(f"Dataset Loaded: X={X.shape}, y={y.shape}, Unique Sessions={len(np.unique(groups))}")
     
     # GroupKFold Cross-Validation
-    gkf = GroupKFold(n_splits=min(5, len(np.unique(groups))))
+    unique_groups = len(np.unique(groups))
+    if unique_groups >= 2:
+        gkf = GroupKFold(n_splits=min(5, unique_groups))
+        splits = list(gkf.split(X, y, groups))
+    else:
+        print("Warning: Only 1 session group found. Falling back to StratifiedKFold cross-validation...")
+        from sklearn.model_selection import StratifiedKFold
+        skf = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
+        splits = list(skf.split(X, y))
+        
     precisions = []
     recalls = []
     f1s = []
     
     print("\nStarting Cross-Validation...")
-    for fold, (train_idx, val_idx) in enumerate(gkf.split(X, y, groups)):
+    for fold, (train_idx, val_idx) in enumerate(splits):
         X_train, y_train = X[train_idx], y[train_idx]
         X_val, y_val = X[val_idx], y[val_idx]
         
