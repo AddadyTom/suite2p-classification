@@ -1,0 +1,11 @@
+# Virtual Environments
+.venv/
+.venv_compat/
+
+# Cache & Temporary files
+__pycache__/
+feature_cache/
+*.zip
+
+# Large Datasets
+*.npy

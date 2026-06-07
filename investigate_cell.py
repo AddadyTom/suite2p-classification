@@ -1,0 +1,2699 @@
+import os
+import sys
+import json
+import joblib
+import numpy as np
+import urllib.parse
+from pathlib import Path
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from scipy.stats import skew
+from scipy.signal import find_peaks, peak_widths
+import webbrowser
+
+# ==========================================
+# 1. MASTER FEATURE DEFINITIONS & PRESETS
+# ==========================================
+
+MASTER_FEATURE_DESCS = {
+    'skew_spatial': 'Spatial skewness of cell pixels. Higher values indicate uneven intensity.',
+    'compact': 'Spatial compactness. Measures circularity; real cells are circular.',
+    'npix': 'Number of pixels. Indicates the physical size of the ROI.',
+    'number_of_bright_pixels': 'Number of pixels in the ROI carrying significant weight (lam > 0.1 * max_lam).',
+    'max_to_mean_f': 'Dynamic range ratio (Max F / Mean F). Measures peak transient height relative to baseline.',
+    'cv_f': 'Coefficient of variation (Std F / Mean F). Scale-free measurement of trace dynamics.',
+    'aspect_ratio': 'Aspect ratio of bounding box. Real cells tend to be close to 1.0.',
+    'radius': 'Radius of the ROI computed from spatial moments.',
+    'solidity': 'Solidity/density of cell border. Crisp borders have higher solidity.',
+    'mrs': 'Morphological Roundness Score. Lower is rounder (like a sphere).',
+    'roi_idx_raw': 'Raw ROI index. Position in suite2p output list.',
+    'roi_idx_norm': 'Normalized ROI index. Position normalized by total ROIs in session.',
+    'roi_idx_norm_3bin': 'Coarse binned normalized ROI index (0, 1, or 2) representing the Suite2p confidence prior.',
+    'skew_f': 'Skewness of raw fluorescence. Real cells have high skew due to sparse bursts.',
+    'std_f': 'Standard deviation of raw fluorescence. Indicates activity amplitude.',
+    'max_f': 'Maximum raw fluorescence intensity.',
+    'mean_f': 'Mean raw fluorescence intensity.',
+    'skew_fneu': 'Skewness of neuropil trace. High skew indicates background contamination.',
+    'corr_f_fneu': 'Correlation between cell and neuropil traces. High correlation indicates motion artifacts.',
+    'skew_fcorr': 'Skewness of corrected trace. Highly active cells have large skew.',
+    'std_fcorr': 'Standard deviation of corrected trace. Key proxy for calcium activity levels.',
+    'q10': '10th percentile of corrected trace. Background noise level.',
+    'q25': '25th percentile of corrected trace. Quiet period baseline.',
+    'q50': '50th percentile (median) of corrected trace.',
+    'q75': '75th percentile of corrected trace.',
+    'q90': '90th percentile of corrected trace.',
+    'q95': '95th percentile of corrected trace.',
+    'q99': '99th percentile of corrected trace. Peak active level.',
+    'avg_asym': 'Average rise-to-decay peak asymmetry. Calcium binds fast and decays slow.',
+    'max_asym': 'Maximum rise-to-decay asymmetry across all peaks.',
+    'max_width': 'Maximum width of peaks in frames. Long events indicate slow drift or artifacts.',
+    'max_spk': 'Maximum value of deconvolved spikes. Indicates strongest firing burst.',
+    'mean_spk_nz': 'Mean of non-zero deconvolved spikes. Average burst size.',
+    'spk_rate': 'Fraction of frames with spike activity.',
+    'skew_spk': 'Skewness of deconvolved spikes. Indicates sparseness of active periods.',
+    'range_fcorr': 'Range of corrected trace (Max - Min). Overall trace fluctuation.',
+    'range_f': 'Range of raw trace (Max - Min). Overall raw fluctuation.',
+    'snr': 'Temporal signal-to-noise ratio. Real neural transients are smooth while noise fluctuates rapidly.',
+    'activity_ratio': 'Ratio of variance above the median to variance below. Highlights positive-going calcium transients.',
+    'peak_density': 'Density of 2-standard-deviation peaks per frame. Measures active firing frequency.'
+}
+
+FEATURE_NAMES_24 = [
+    'number_of_bright_pixels', 'solidity', 'mrs', 'roi_idx_norm',
+    'skew_f', 'std_f', 'max_to_mean_f', 'cv_f',
+    'skew_fneu', 'corr_f_fneu', 'skew_fcorr', 'std_fcorr', 'q10', 'q25',
+    'q50', 'q75', 'q90', 'q95', 'q99', 'avg_asym', 'max_asym', 'max_width',
+    'range_fcorr', 'range_f'
+]
+
+FEATURE_NAMES_26 = [
+    'number_of_bright_pixels', 'solidity', 'mrs',
+    'skew_f', 'std_f', 'max_to_mean_f', 'cv_f', 'skew_fneu', 'corr_f_fneu',
+    'skew_fcorr', 'std_fcorr', 'q10', 'q25', 'q50', 'q75', 'q90', 'q95', 'q99',
+    'avg_asym', 'max_asym', 'max_width', 'range_fcorr', 'range_f',
+    'snr', 'activity_ratio', 'peak_density'
+]
+
+FEATURE_NAMES_27 = [
+    'number_of_bright_pixels', 'solidity', 'mrs', 'roi_idx_norm_3bin',
+    'skew_f', 'std_f', 'max_to_mean_f', 'cv_f', 'skew_fneu', 'corr_f_fneu',
+    'skew_fcorr', 'std_fcorr', 'q10', 'q25', 'q50', 'q75', 'q90', 'q95', 'q99',
+    'avg_asym', 'max_asym', 'max_width', 'range_fcorr', 'range_f',
+    'snr', 'activity_ratio', 'peak_density'
+]
+
+FEATURE_NAMES_28 = [
+    'skew_spatial', 'npix', 'aspect_ratio', 'radius', 'solidity', 'mrs',
+    'roi_idx_raw', 'roi_idx_norm', 'skew_f', 'std_f', 'max_f', 'mean_f',
+    'skew_fneu', 'corr_f_fneu', 'skew_fcorr', 'std_fcorr', 'q10', 'q25',
+    'q50', 'q75', 'q90', 'q95', 'q99', 'avg_asym', 'max_asym', 'max_width',
+    'range_fcorr', 'range_f'
+]
+
+FEATURE_NAMES_29 = [
+    'skew_spatial', 'compact', 'npix', 'aspect_ratio', 'radius', 'solidity', 'mrs',
+    'skew_f', 'std_f', 'max_f', 'mean_f', 'skew_fneu', 'corr_f_fneu', 'skew_fcorr',
+    'std_fcorr', 'q10', 'q25', 'q50', 'q75', 'q90', 'q95', 'q99', 'avg_asym',
+    'max_asym', 'max_width', 'max_spk', 'mean_spk_nz', 'spk_rate', 'skew_spk'
+]
+
+FEATURE_NAMES_31 = [
+    'skew_spatial', 'npix', 'aspect_ratio', 'radius', 'solidity', 'mrs',
+    'roi_idx_raw', 'roi_idx_norm', 'skew_f', 'std_f', 'max_f', 'mean_f',
+    'skew_fneu', 'corr_f_fneu', 'skew_fcorr', 'std_fcorr', 'q10', 'q25',
+    'q50', 'q75', 'q90', 'q95', 'q99', 'avg_asym', 'max_asym', 'max_width',
+    'max_spk', 'mean_spk_nz', 'spk_rate', 'range_fcorr', 'range_f'
+]
+
+# ==========================================
+# 2. FEATURE EXTRACTION PIPELINES
+# ==========================================
+
+def extract_peak_features(F):
+    peaks, _ = find_peaks(F, height=np.mean(F) + 2*np.std(F), distance=10)
+    if len(peaks) == 0:
+        return 1.0, 1.0, 0.0
+    
+    widths, _, left_ips, right_ips = peak_widths(F, peaks, rel_height=0.5)
+    left_widths = peaks - left_ips
+    right_widths = right_ips - peaks
+    left_widths[left_widths < 0.1] = 0.1
+    
+    asymmetry_ratios = right_widths / left_widths
+    max_width = np.max(widths)
+    
+    return np.mean(asymmetry_ratios), np.max(asymmetry_ratios), max_width
+
+def extract_features_single(F_row, Fneu_row, spks_row, stat_entry, roi_idx, n_rois, num_features_or_names):
+    f = F_row
+    fneu = Fneu_row
+    f_corr = f - 0.7 * fneu
+    s = spks_row if spks_row is not None else np.zeros_like(f)
+    
+    # Check if we got a list of feature names
+    if isinstance(num_features_or_names, (list, tuple, np.ndarray)):
+        feature_names = num_features_or_names
+        avg_asym, max_asym, max_width = None, None, None
+        bright_pix = None
+        
+        row = []
+        for name in feature_names:
+            # Spatial features
+            if name == 'npix':
+                row.append(float(stat_entry.get('npix', 0)))
+            elif name == 'skew_spatial':
+                row.append(float(stat_entry.get('skew', 0)))
+            elif name == 'compact':
+                row.append(float(stat_entry.get('compact', 0.0)))
+            elif name == 'aspect_ratio':
+                row.append(float(stat_entry.get('aspect_ratio', 1.0)))
+            elif name == 'radius':
+                row.append(float(stat_entry.get('radius', 0.0)))
+            elif name == 'solidity':
+                row.append(float(stat_entry.get('solidity', 1.0)))
+            elif name == 'mrs':
+                row.append(float(stat_entry.get('mrs', 0.0)))
+            elif name == 'number_of_bright_pixels':
+                if bright_pix is None:
+                    lam = stat_entry.get('lam', np.zeros(0))
+                    max_lam = np.max(lam) if len(lam) > 0 else 0.0
+                    bright_pix = float(np.sum(lam > 0.1 * max_lam)) if max_lam > 0 else 0.0
+                row.append(bright_pix)
+                
+            # Index features
+            elif name == 'roi_idx_norm':
+                row.append(float(roi_idx / n_rois) if n_rois > 0 else 0.0)
+            elif name == 'roi_idx_norm_3bin':
+                norm_val = roi_idx / n_rois if n_rois > 0 else 0.0
+                row.append(float(np.digitize(norm_val, [0.1, 0.4])))
+            elif name == 'roi_idx_raw' or name == 'roi_idx':
+                row.append(float(roi_idx))
+                
+            # Trace Stats features
+            elif name == 'skew_f':
+                row.append(float(skew(f)))
+            elif name == 'std_f':
+                row.append(float(np.std(f)))
+            elif name == 'max_f':
+                row.append(float(np.max(f)))
+            elif name == 'mean_f':
+                row.append(float(np.mean(f)))
+            elif name == 'max_to_mean_f':
+                mean_f_val = np.mean(f)
+                row.append(float(np.max(f) / mean_f_val) if mean_f_val > 0 else 1.0)
+            elif name == 'cv_f':
+                mean_f_val = np.mean(f)
+                row.append(float(np.std(f) / mean_f_val) if mean_f_val > 0 else 0.0)
+            elif name == 'skew_fneu':
+                row.append(float(skew(fneu)))
+            elif name == 'corr_f_fneu':
+                row.append(float(np.corrcoef(f, fneu)[0, 1]) if np.std(f)>0 and np.std(fneu)>0 else 0.0)
+            elif name == 'skew_fcorr':
+                row.append(float(skew(f_corr)))
+            elif name == 'std_fcorr':
+                row.append(float(np.std(f_corr)))
+                
+            # Quantiles
+            elif name.startswith('q') and name[1:].isdigit():
+                pct = float(name[1:]) / 100.0
+                row.append(float(np.quantile(f_corr, pct)))
+                
+            # Dynamics
+            elif name in ('avg_asym', 'max_asym', 'max_width'):
+                if avg_asym is None:
+                    avg_asym, max_asym, max_width = extract_peak_features(f_corr)
+                if name == 'avg_asym':
+                    row.append(avg_asym)
+                elif name == 'max_asym':
+                    row.append(max_asym)
+                elif name == 'max_width':
+                    row.append(max_width)
+                    
+            # Spikes
+            elif name == 'max_spk':
+                row.append(float(np.max(s)))
+            elif name == 'mean_spk_nz':
+                row.append(float(np.mean(s[s > 0]) if np.sum(s > 0) > 0 else 0.0))
+            elif name == 'spk_rate':
+                max_s = np.max(s)
+                row.append(float(np.count_nonzero(s > 0.01 * max_s) / len(s) if max_s > 0 else 0.0))
+            elif name == 'skew_spk':
+                row.append(float(skew(s)))
+                
+            # Amplitudes
+            elif name == 'range_fcorr':
+                row.append(float(np.max(f_corr) - np.min(f_corr)))
+            elif name == 'range_f':
+                row.append(float(np.max(f) - np.min(f)))
+                
+            # New Biological
+            elif name == 'snr':
+                diff_f = np.diff(f_corr)
+                std_diff = np.std(diff_f)
+                row.append(float(np.std(f_corr) / std_diff) if std_diff > 0 else 0.0)
+            elif name == 'activity_ratio':
+                median_val = np.median(f_corr)
+                above_med = f_corr[f_corr > median_val]
+                below_med = f_corr[f_corr <= median_val]
+                std_above = np.std(above_med) if len(above_med) > 0 else 0.0
+                std_below = np.std(below_med) if len(below_med) > 0 else 0.0
+                row.append(float(std_above / std_below) if std_below > 0 else 0.0)
+            elif name == 'peak_density':
+                peaks, _ = find_peaks(f_corr, height=np.mean(f_corr) + 2*np.std(f_corr), distance=10)
+                row.append(float(len(peaks) / len(f_corr)) if len(f_corr) > 0 else 0.0)
+                
+            else:
+                print(f"Warning: Unknown feature name '{name}'. Defaulting to 0.0.")
+                row.append(0.0)
+                
+        return np.array(row)
+        
+    num_features = num_features_or_names
+    avg_asym, max_asym, max_width = extract_peak_features(f_corr)
+    
+    if num_features == 24:
+        # Spatial (4)
+        lam = stat_entry.get('lam', np.zeros(0))
+        max_lam = np.max(lam) if len(lam) > 0 else 0.0
+        bright_pix = np.sum(lam > 0.1 * max_lam) if max_lam > 0 else 0
+        
+        spatial = [
+            bright_pix,
+            stat_entry.get('solidity', 1.0),
+            stat_entry.get('mrs', 0),
+            roi_idx / n_rois if n_rois > 0 else 0.0
+        ]
+        # Trace Stats (8)
+        mean_f_val = np.mean(f)
+        max_to_mean_f = np.max(f) / mean_f_val if mean_f_val > 0 else 1.0
+        cv_f = np.std(f) / mean_f_val if mean_f_val > 0 else 0.0
+        
+        trace_stats = [
+            skew(f), np.std(f), max_to_mean_f, cv_f,
+            skew(fneu),
+            np.corrcoef(f, fneu)[0, 1] if np.std(f)>0 and np.std(fneu)>0 else 0,
+            skew(f_corr), np.std(f_corr)
+        ]
+        # Percentiles (7)
+        q = np.quantile(f_corr, [0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]).tolist()
+        # Dynamics (3)
+        dynamics = [avg_asym, max_asym, max_width]
+        # Trace Amplitudes (2)
+        range_fcorr = np.max(f_corr) - np.min(f_corr)
+        range_f = np.max(f) - np.min(f)
+        amplitudes = [range_fcorr, range_f]
+        
+        return np.array(spatial + trace_stats + q + dynamics + amplitudes)
+        
+    elif num_features == 26:
+        # Option A: No Index
+        # Spatial (3)
+        lam = stat_entry.get('lam', np.zeros(0))
+        max_lam = np.max(lam) if len(lam) > 0 else 0.0
+        bright_pix = np.sum(lam > 0.1 * max_lam) if max_lam > 0 else 0
+        
+        spatial = [
+            bright_pix,
+            stat_entry.get('solidity', 1.0),
+            stat_entry.get('mrs', 0)
+        ]
+        # Trace Stats (8)
+        mean_f_val = np.mean(f)
+        max_to_mean_f = np.max(f) / mean_f_val if mean_f_val > 0 else 1.0
+        cv_f = np.std(f) / mean_f_val if mean_f_val > 0 else 0.0
+        
+        trace_stats = [
+            skew(f), np.std(f), max_to_mean_f, cv_f,
+            skew(fneu),
+            np.corrcoef(f, fneu)[0, 1] if np.std(f)>0 and np.std(fneu)>0 else 0,
+            skew(f_corr), np.std(f_corr)
+        ]
+        # Percentiles (7)
+        q = np.quantile(f_corr, [0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]).tolist()
+        # Dynamics (3)
+        dynamics = [avg_asym, max_asym, max_width]
+        # Trace Amplitudes (2)
+        range_fcorr = np.max(f_corr) - np.min(f_corr)
+        range_f = np.max(f) - np.min(f)
+        amplitudes = [range_fcorr, range_f]
+        
+        # New Biological (3)
+        diff_f = np.diff(f_corr)
+        std_diff = np.std(diff_f)
+        snr_val = np.std(f_corr) / std_diff if std_diff > 0 else 0.0
+        
+        median_val = np.median(f_corr)
+        above_med = f_corr[f_corr > median_val]
+        below_med = f_corr[f_corr <= median_val]
+        std_above = np.std(above_med) if len(above_med) > 0 else 0.0
+        std_below = np.std(below_med) if len(below_med) > 0 else 0.0
+        activity_ratio = std_above / std_below if std_below > 0 else 0.0
+        
+        peaks, _ = find_peaks(f_corr, height=np.mean(f_corr) + 2*np.std(f_corr), distance=10)
+        peak_density = len(peaks) / len(f_corr) if len(f_corr) > 0 else 0.0
+        
+        new_bio = [snr_val, activity_ratio, peak_density]
+        
+        return np.array(spatial + trace_stats + q + dynamics + amplitudes + new_bio)
+        
+    elif num_features == 27:
+        # Option B: 3-Bin Index
+        # Spatial (4)
+        lam = stat_entry.get('lam', np.zeros(0))
+        max_lam = np.max(lam) if len(lam) > 0 else 0.0
+        bright_pix = np.sum(lam > 0.1 * max_lam) if max_lam > 0 else 0
+        
+        norm_val = roi_idx / n_rois if n_rois > 0 else 0.0
+        binned = float(np.digitize(norm_val, [0.1, 0.4]))
+        
+        spatial = [
+            bright_pix,
+            stat_entry.get('solidity', 1.0),
+            stat_entry.get('mrs', 0),
+            binned
+        ]
+        # Trace Stats (8)
+        mean_f_val = np.mean(f)
+        max_to_mean_f = np.max(f) / mean_f_val if mean_f_val > 0 else 1.0
+        cv_f = np.std(f) / mean_f_val if mean_f_val > 0 else 0.0
+        
+        trace_stats = [
+            skew(f), np.std(f), max_to_mean_f, cv_f,
+            skew(fneu),
+            np.corrcoef(f, fneu)[0, 1] if np.std(f)>0 and np.std(fneu)>0 else 0,
+            skew(f_corr), np.std(f_corr)
+        ]
+        # Percentiles (7)
+        q = np.quantile(f_corr, [0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]).tolist()
+        # Dynamics (3)
+        dynamics = [avg_asym, max_asym, max_width]
+        # Trace Amplitudes (2)
+        range_fcorr = np.max(f_corr) - np.min(f_corr)
+        range_f = np.max(f) - np.min(f)
+        amplitudes = [range_fcorr, range_f]
+        
+        # New Biological (3)
+        diff_f = np.diff(f_corr)
+        std_diff = np.std(diff_f)
+        snr_val = np.std(f_corr) / std_diff if std_diff > 0 else 0.0
+        
+        median_val = np.median(f_corr)
+        above_med = f_corr[f_corr > median_val]
+        below_med = f_corr[f_corr <= median_val]
+        std_above = np.std(above_med) if len(above_med) > 0 else 0.0
+        std_below = np.std(below_med) if len(below_med) > 0 else 0.0
+        activity_ratio = std_above / std_below if std_below > 0 else 0.0
+        
+        peaks, _ = find_peaks(f_corr, height=np.mean(f_corr) + 2*np.std(f_corr), distance=10)
+        peak_density = len(peaks) / len(f_corr) if len(f_corr) > 0 else 0.0
+        
+        new_bio = [snr_val, activity_ratio, peak_density]
+        
+        return np.array(spatial + trace_stats + q + dynamics + amplitudes + new_bio)
+        
+    elif num_features == 28:
+        # Spatial (8)
+        spatial = [
+            stat_entry.get('skew', 0),
+            stat_entry.get('npix', 0),
+            stat_entry.get('aspect_ratio', 1.0),
+            stat_entry.get('radius', 0),
+            stat_entry.get('solidity', 1.0),
+            stat_entry.get('mrs', 0),
+            roi_idx,
+            roi_idx / n_rois if n_rois > 0 else 0.0
+        ]
+        # Trace Stats (8)
+        trace_stats = [
+            skew(f), np.std(f), np.max(f), np.mean(f),
+            skew(fneu),
+            np.corrcoef(f, fneu)[0, 1] if np.std(f)>0 and np.std(fneu)>0 else 0,
+            skew(f_corr), np.std(f_corr)
+        ]
+        # Percentiles (7)
+        q = np.quantile(f_corr, [0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]).tolist()
+        # Dynamics (3)
+        dynamics = [avg_asym, max_asym, max_width]
+        # Trace Amplitudes (2)
+        range_fcorr = np.max(f_corr) - np.min(f_corr)
+        range_f = np.max(f) - np.min(f)
+        amplitudes = [range_fcorr, range_f]
+        
+        return np.array(spatial + trace_stats + q + dynamics + amplitudes)
+        
+    elif num_features == 29:
+        # Spatial (7)
+        spatial = [
+            stat_entry.get('skew', 0),
+            stat_entry.get('compact', 0),
+            stat_entry.get('npix', 0),
+            stat_entry.get('aspect_ratio', 1.0),
+            stat_entry.get('radius', 0),
+            stat_entry.get('solidity', 1.0),
+            stat_entry.get('mrs', 0)
+        ]
+        # Trace Stats (8)
+        trace_stats = [
+            skew(f), np.std(f), np.max(f), np.mean(f),
+            skew(fneu),
+            np.corrcoef(f, fneu)[0, 1] if np.std(f)>0 and np.std(fneu)>0 else 0,
+            skew(f_corr), np.std(f_corr)
+        ]
+        # Percentiles (7)
+        q = np.quantile(f_corr, [0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]).tolist()
+        # Dynamics (3)
+        dynamics = [avg_asym, max_asym, max_width]
+        # Spikes (4)
+        max_spk = np.max(s)
+        mean_spk_nz = np.mean(s[s > 0]) if np.sum(s > 0) > 0 else 0
+        spk_rate = np.count_nonzero(s > 0.01 * max_spk) / len(s) if max_spk > 0 else 0
+        skew_spk = skew(s)
+        spikes = [max_spk, mean_spk_nz, spk_rate, skew_spk]
+        
+        return np.array(spatial + trace_stats + q + dynamics + spikes)
+
+    elif num_features == 31:
+        # Spatial (8)
+        spatial = [
+            stat_entry.get('skew', 0),
+            stat_entry.get('npix', 0),
+            stat_entry.get('aspect_ratio', 1.0),
+            stat_entry.get('radius', 0),
+            stat_entry.get('solidity', 1.0),
+            stat_entry.get('mrs', 0),
+            roi_idx,
+            roi_idx / n_rois if n_rois > 0 else 0.0
+        ]
+        # Trace Stats (8)
+        trace_stats = [
+            skew(f), np.std(f), np.max(f), np.mean(f),
+            skew(fneu),
+            np.corrcoef(f, fneu)[0, 1] if np.std(f)>0 and np.std(fneu)>0 else 0,
+            skew(f_corr), np.std(f_corr)
+        ]
+        # Percentiles (7)
+        q = np.quantile(f_corr, [0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]).tolist()
+        # Dynamics (3)
+        dynamics = [avg_asym, max_asym, max_width]
+        # Spikes (3)
+        max_spk = np.max(s)
+        mean_spk_nz = np.mean(s[s > 0]) if np.sum(s > 0) > 0 else 0
+        spk_rate = np.count_nonzero(s > 0.01 * max_spk) / len(s) if max_spk > 0 else 0
+        spikes = [max_spk, mean_spk_nz, spk_rate]
+        # Trace Amplitudes (2)
+        range_fcorr = np.max(f_corr) - np.min(f_corr)
+        range_f = np.max(f) - np.min(f)
+        amplitudes = [range_fcorr, range_f]
+        
+        return np.array(spatial + trace_stats + q + dynamics + spikes + amplitudes)
+    
+    else:
+        raise ValueError(f"Unsupported number of features: {num_features}")
+
+# ==========================================
+# 3. INTERACTIVE SERVER BACKEND
+# ==========================================
+
+class SessionState:
+    def __init__(self):
+        self.session_path = None
+        self.model_path = None
+        self.scaler_path = None
+        self.model = None
+        self.scaler = None
+        self.num_features = 29
+        self.feature_names = FEATURE_NAMES_29
+        self.feature_descs = {}
+        
+        # Extracted data cache
+        self.F = None
+        self.Fneu = None
+        self.stat = None
+        self.spks = None
+        self.y_true = None
+        self.X_extracted = None
+        self.y_probs = None
+        self.y_preds = None
+        self.iscell_meta = None
+        
+        # Dataset-wide averages for reference
+        self.ref_means = None
+        self.ref_cells_means = None
+        self.ref_noncells_means = None
+        
+    def scan_models(self):
+        dir_path = Path("/home/tomer/Documents/suite2p-iscell-prediction")
+        models = [f.name for f in dir_path.glob("*.pkl") if "scaler" not in f.name]
+        scalers = [f.name for f in dir_path.glob("*scaler*.pkl")]
+        return sorted(models), sorted(scalers)
+
+    def load_model(self, model_name, scaler_name=None):
+        dir_path = Path("/home/tomer/Documents/suite2p-iscell-prediction")
+        
+        m_path = Path(model_name)
+        if m_path.is_absolute() and m_path.exists():
+            self.model_path = m_path
+        elif (dir_path / model_name).exists():
+            self.model_path = dir_path / model_name
+        elif m_path.exists():
+            self.model_path = m_path.resolve()
+        else:
+            self.model_path = dir_path / model_name
+            
+        self.model = joblib.load(self.model_path)
+        
+        # Detect feature count
+        if hasattr(self.model, 'n_features_in_'):
+            self.num_features = self.model.n_features_in_
+        elif hasattr(self.model, 'n_features_'):
+            self.num_features = self.model.n_features_
+        elif hasattr(self.model, 'num_features'):
+            self.num_features = self.model.num_features
+        elif "CatBoostClassifier" in str(type(self.model)):
+            try:
+                self.num_features = len(self.model.feature_names_)
+            except:
+                self.num_features = 29
+        else:
+            self.num_features = 29
+            
+        # Try to infer feature names list
+        feature_names = None
+        if hasattr(self.model, 'feature_name_'):
+            feature_names = list(self.model.feature_name_)
+        elif hasattr(self.model, 'feature_names'):
+            feature_names = list(self.model.feature_names)
+            
+        def is_default_names(names):
+            if not names:
+                return True
+            first = str(names[0]).lower()
+            return first.startswith('column_') or first.startswith('feature_') or first.isdigit()
+            
+        if feature_names and is_default_names(feature_names):
+            feature_names = None
+            
+        if not feature_names:
+            # Look in model directory for any JSON file describing features
+            model_dir = self.model_path.parent
+            json_files = list(model_dir.glob("*.json"))
+            for jf in json_files:
+                try:
+                    with open(jf, 'r') as f:
+                        data = json.load(f)
+                        if isinstance(data, dict) and 'features' in data:
+                            if len(data['features']) == self.num_features:
+                                feature_names = data['features']
+                                print(f"Loaded feature names from metadata file: {jf.name}")
+                                break
+                except:
+                    pass
+
+        # Fallback to predefined lists if we still don't have feature names
+        if not feature_names:
+            if self.num_features == 24:
+                feature_names = FEATURE_NAMES_24
+            elif self.num_features == 26:
+                feature_names = FEATURE_NAMES_26
+            elif self.num_features == 27:
+                feature_names = FEATURE_NAMES_27
+            elif self.num_features == 28:
+                feature_names = FEATURE_NAMES_28
+            elif self.num_features == 31:
+                feature_names = FEATURE_NAMES_31
+            elif self.num_features == 29:
+                feature_names = FEATURE_NAMES_29
+            else:
+                feature_names = [f"feature_{i}" for i in range(self.num_features)]
+
+        self.feature_names = feature_names
+        self.feature_descs = {name: MASTER_FEATURE_DESCS.get(name, 'Custom model feature.') for name in self.feature_names}
+        print(f"Loaded model {self.model_path}. Expects {self.num_features} features.")
+        
+        # Determine scaler
+        if scaler_name:
+            s_path = Path(scaler_name)
+            if s_path.is_absolute() and s_path.exists():
+                self.scaler_path = s_path
+            elif (dir_path / scaler_name).exists():
+                self.scaler_path = dir_path / scaler_name
+            elif s_path.exists():
+                self.scaler_path = s_path.resolve()
+            else:
+                self.scaler_path = dir_path / scaler_name
+                
+            try:
+                self.scaler = joblib.load(self.scaler_path)
+                print(f"Loaded selected scaler: {self.scaler_path}")
+                if hasattr(self.scaler, 'n_features_in_') and self.scaler.n_features_in_ != self.num_features:
+                    print(f"Warning: Selected scaler expects {self.scaler.n_features_in_} features, but model expects {self.num_features}. Disabling scaling.")
+                    self.scaler = None
+                    self.scaler_path = None
+            except Exception as e:
+                print(f"Error loading scaler {scaler_name}: {e}")
+                self.scaler = None
+                self.scaler_path = None
+        else:
+            # Auto-detect matching scaler
+            scaler_prefix = self.model_path.name.replace("_mlp.pkl", "").replace("_lgb.pkl", "").replace("_best", "").replace("_standard", "")
+            scaler_candidates = [
+                self.model_path.parent / f"{scaler_prefix}_scaler.pkl",
+                dir_path / f"{scaler_prefix}_scaler.pkl",
+                dir_path / "suite2p_mlp_scaler.pkl",
+                dir_path / "suite2p_scaler.pkl"
+            ]
+            self.scaler = None
+            self.scaler_path = None
+            
+            # Scaler only needed for non-tree models (MLPClassifier)
+            if "MLPClassifier" in str(type(self.model)):
+                for c in scaler_candidates:
+                    if c.exists():
+                        try:
+                            temp_scaler = joblib.load(c)
+                            if hasattr(temp_scaler, 'n_features_in_') and temp_scaler.n_features_in_ == self.num_features:
+                                self.scaler = temp_scaler
+                                self.scaler_path = c
+                                print(f"Auto-loaded matching scaler: {c.name}")
+                                break
+                        except Exception as e:
+                            print(f"Error loading scaler candidate {c.name}: {e}")
+                            
+        self.load_dataset_averages()
+
+    def load_dataset_averages(self):
+        dir_path = Path("/home/tomer/Documents/suite2p-iscell-prediction")
+        if self.num_features in (24, 27, 28):
+            dataset_file = dir_path / "X_all_stav.npy"
+            labels_file = dir_path / "y_all_stav.npy"
+        elif self.num_features == 29:
+            dataset_file = dir_path / "X_dataset.npy"
+            labels_file = dir_path / "y_dataset.npy"
+        else:
+            dataset_file = dir_path / "X_all_stav.npy"
+            labels_file = dir_path / "y_all_stav.npy"
+            
+        if dataset_file.exists() and labels_file.exists():
+            try:
+                X_ref = np.load(dataset_file)
+                y_ref = np.load(labels_file)
+                if X_ref.shape[1] == self.num_features:
+                    self.ref_means = np.mean(X_ref, axis=0)
+                    self.ref_cells_means = np.mean(X_ref[y_ref == 1], axis=0)
+                    self.ref_noncells_means = np.mean(X_ref[y_ref == 0], axis=0)
+                    print(f"Loaded dataset averages from {dataset_file.name}")
+                    return
+            except Exception as e:
+                print(f"Error loading reference dataset averages: {e}")
+                
+        self.ref_means = None
+        self.ref_cells_means = None
+        self.ref_noncells_means = None
+
+    def load_session(self, session_path_str):
+        self.session_path = Path(session_path_str)
+        print(f"Loading session: {self.session_path}")
+        
+        self.F = np.load(self.session_path / 'F.npy')
+        self.Fneu = np.load(self.session_path / 'Fneu.npy')
+        self.stat = np.load(self.session_path / 'stat.npy', allow_pickle=True)
+        
+        spks_path = self.session_path / 'spks.npy'
+        self.spks = np.load(spks_path) if spks_path.exists() else None
+        
+        iscell_path = None
+        for l in ['iscell_final.npy', 'iscell_manual.npy']:
+            if (self.session_path / l).exists():
+                iscell_path = self.session_path / l
+                break
+                    
+        if iscell_path is not None:
+            iscell = np.load(iscell_path)
+            self.y_true = iscell[:, 0].astype(int)
+            self.iscell_meta = iscell
+            self.gt_path = str(iscell_path)
+            self.gt_file = iscell_path.name
+        else:
+            self.y_true = np.zeros(len(self.F))
+            self.iscell_meta = None
+            self.gt_path = "None"
+            self.gt_file = "None"
+            print("Warning: No curated ground truth file (iscell_final.npy or iscell_manual.npy) found. Initializing with zeros.")
+            
+        self.X_extracted = None
+        self.y_probs = None
+        self.y_preds = None
+
+    def process_all_cells(self):
+        if self.X_extracted is not None:
+            return
+            
+        print("Extracting features for all cells in session...")
+        n_cells = len(self.F)
+        X = []
+        for idx in range(n_cells):
+            x_f = extract_features_single(
+                self.F[idx], self.Fneu[idx], 
+                self.spks[idx] if self.spks is not None else None,
+                self.stat[idx], idx, n_cells, self.feature_names
+            )
+            X.append(x_f)
+            
+        self.X_extracted = np.nan_to_num(np.array(X))
+        
+        if self.ref_means is None:
+            self.ref_means = np.mean(self.X_extracted, axis=0)
+            self.ref_cells_means = np.mean(self.X_extracted[self.y_true == 1], axis=0) if np.sum(self.y_true == 1) > 0 else self.ref_means
+            self.ref_noncells_means = np.mean(self.X_extracted[self.y_true == 0], axis=0) if np.sum(self.y_true == 0) > 0 else self.ref_means
+            print("Calculated reference averages from session.")
+
+        X_proc = self.X_extracted
+        if self.scaler is not None:
+            X_proc = self.scaler.transform(X_proc)
+            
+        self.y_probs = self.model.predict_proba(X_proc)[:, 1]
+        self.y_preds = (self.y_probs >= 0.5).astype(int)
+        
+    def get_cell_explanation(self, cell_idx):
+        if self.X_extracted is None:
+            self.process_all_cells()
+            
+        x_raw = self.X_extracted[cell_idx]
+        prob = self.y_probs[cell_idx]
+        
+        # 1. Feature ablation explanation (always compute)
+        ablation_attributions = []
+        
+        x_proc = x_raw.reshape(1, -1)
+        if self.scaler is not None:
+            x_proc = self.scaler.transform(x_proc)
+            
+        base_prob = self.model.predict_proba(x_proc)[0, 1]
+        
+        for i in range(self.num_features):
+            x_ablated = x_raw.copy()
+            x_ablated[i] = self.ref_means[i]
+            
+            x_ablated_proc = x_ablated.reshape(1, -1)
+            if self.scaler is not None:
+                x_ablated_proc = self.scaler.transform(x_ablated_proc)
+                
+            prob_ablated = self.model.predict_proba(x_ablated_proc)[0, 1]
+            ablation_attributions.append(base_prob - prob_ablated)
+            
+        # 2. TreeSHAP explanation (if tree model)
+        shap_values = None
+        has_shap = False
+        
+        model_type_str = str(type(self.model))
+        
+        if "LGBMClassifier" in model_type_str:
+            try:
+                contribs = self.model.predict(x_raw.reshape(1, -1), pred_contrib=True)[0]
+                shaps = contribs[:-1]
+                base_value = contribs[-1]
+                
+                margin = base_value + np.sum(shaps)
+                prob_full = 1.0 / (1.0 + np.exp(-margin))
+                
+                shap_prob_contribs = []
+                for s_val in shaps:
+                    margin_without = margin - s_val
+                    prob_without = 1.0 / (1.0 + np.exp(-margin_without))
+                    shap_prob_contribs.append(prob_full - prob_without)
+                    
+                shap_values = shap_prob_contribs
+                has_shap = True
+            except Exception as e:
+                print(f"Error computing LGBM TreeSHAP: {e}")
+                
+        elif "XGBClassifier" in model_type_str:
+            try:
+                import xgboost as xgb
+                booster = self.model.get_booster()
+                dmat = xgb.DMatrix(x_raw.reshape(1, -1))
+                contribs = booster.predict(dmat, pred_contribs=True)[0]
+                shaps = contribs[:-1]
+                base_value = contribs[-1]
+                
+                margin = base_value + np.sum(shaps)
+                prob_full = 1.0 / (1.0 + np.exp(-margin))
+                
+                shap_prob_contribs = []
+                for s_val in shaps:
+                    margin_without = margin - s_val
+                    prob_without = 1.0 / (1.0 + np.exp(-margin_without))
+                    shap_prob_contribs.append(prob_full - prob_without)
+                    
+                shap_values = shap_prob_contribs
+                has_shap = True
+            except Exception as e:
+                print(f"Error computing XGBoost TreeSHAP: {e}")
+                
+        elif "CatBoostClassifier" in model_type_str:
+            try:
+                import catboost
+                pool = catboost.Pool(x_raw.reshape(1, -1))
+                contribs = self.model.get_feature_importance(data=pool, type='ShapValues')[0]
+                shaps = contribs[:-1]
+                base_value = contribs[-1]
+                
+                margin = base_value + np.sum(shaps)
+                prob_full = 1.0 / (1.0 + np.exp(-margin))
+                
+                shap_prob_contribs = []
+                for s_val in shaps:
+                    margin_without = margin - s_val
+                    prob_without = 1.0 / (1.0 + np.exp(-margin_without))
+                    shap_prob_contribs.append(prob_full - prob_without)
+                    
+                shap_values = shap_prob_contribs
+                has_shap = True
+            except Exception as e:
+                print(f"Error computing CatBoost TreeSHAP: {e}")
+                
+        # 3. Assemble attributions
+        attributions = []
+        for i in range(self.num_features):
+            ablation_val = ablation_attributions[i]
+            shap_val = shap_values[i] if has_shap else None
+            
+            attributions.append({
+                'name': self.feature_names[i],
+                'desc': self.feature_descs.get(self.feature_names[i], 'Custom model feature.'),
+                'value': float(x_raw[i]),
+                'mean_dataset': float(self.ref_means[i]),
+                'mean_cells': float(self.ref_cells_means[i]),
+                'mean_noncells': float(self.ref_noncells_means[i]),
+                'ablation_attribution': float(ablation_val),
+                'shap_attribution': float(shap_val) if shap_val is not None else None,
+                'attribution': float(shap_val) if shap_val is not None else float(ablation_val)
+            })
+            
+        attributions.sort(key=lambda x: abs(x['shap_attribution'] if x['shap_attribution'] is not None else x['ablation_attribution']), reverse=True)
+        
+        f_raw = self.F[cell_idx]
+        fneu_raw = self.Fneu[cell_idx]
+        fcorr_raw = f_raw - 0.7 * fneu_raw
+        spks_raw = self.spks[cell_idx] if self.spks is not None else np.zeros_like(f_raw)
+        
+        n_frames = len(f_raw)
+        step = max(1, n_frames // 2000)
+        
+        dec_indices = np.arange(0, n_frames, step)
+        f_dec = f_raw[dec_indices].tolist()
+        fneu_dec = fneu_raw[dec_indices].tolist()
+        fcorr_dec = fcorr_raw[dec_indices].tolist()
+        spks_dec = spks_raw[dec_indices].tolist()
+        time_dec = dec_indices.tolist()
+        
+        s_entry = self.stat[cell_idx]
+        xpix = s_entry.get('xpix', [])
+        ypix = s_entry.get('ypix', [])
+        
+        if len(xpix) > 0 and len(ypix) > 0:
+            x_min, x_max = np.min(xpix), np.max(xpix)
+            y_min, y_max = np.min(ypix), np.max(ypix)
+            margin = 5
+            cx = (x_min + x_max) // 2
+            cy = (y_min + y_max) // 2
+            width = max(x_max - x_min, y_max - y_min) // 2 + margin
+            
+            roi_points = [[int(x), int(y)] for x, y in zip(xpix, ypix)]
+            roi_bbox = {
+                'xmin': int(cx - width), 'xmax': int(cx + width),
+                'ymin': int(cy - width), 'ymax': int(cy + width)
+            }
+        else:
+            roi_points = []
+            roi_bbox = {'xmin': 0, 'xmax': 100, 'ymin': 0, 'ymax': 100}
+            
+        return {
+            'cell_idx': cell_idx,
+            'probability': float(prob),
+            'label': int(self.y_true[cell_idx]),
+            'is_cell_tag': int(self.y_preds[cell_idx]),
+            'has_shap': has_shap,
+            'attributions': attributions,
+            'trace': {
+                'time': time_dec,
+                'f': f_dec,
+                'fneu': fneu_dec,
+                'fcorr': fcorr_dec,
+                'spks': spks_dec
+            },
+            'roi': {
+                'points': roi_points,
+                'bbox': roi_bbox
+            }
+        }
+
+
+# ==========================================
+# 4. HTTP REQUEST HANDLER
+# ==========================================
+
+state = SessionState()
+
+class DashHandler(BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        pass
+        
+    def do_GET(self):
+        parsed_url = urllib.parse.urlparse(self.path)
+        params = urllib.parse.parse_qs(parsed_url.query)
+        path = parsed_url.path
+        
+        if path in ('/', '/index.html'):
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html; charset=utf-8')
+            self.end_headers()
+            self.wfile.write(HTML_TEMPLATE.encode('utf-8'))
+            return
+            
+        elif path == '/api/models':
+            try:
+                models, scalers = state.scan_models()
+                default_sessions = [
+                    "/mnt/other_ubunthu/mnt/data/1-ordered/Stav1",
+                    "/mnt/other_ubunthu/mnt/data/4-ordered/Stav4",
+                    "/mnt/other_ubunthu/mnt/data/6-ordered/Stav6",
+                    "/mnt/other_ubunthu/mnt/data/7-ordered/Stav7",
+                    "/mnt/other_ubunthu/mnt/data/8-ordered/Stav8",
+                    "/mnt/other_ubunthu/mnt/data/9-ordered/Stav9",
+                    "/mnt/other_ubunthu/mnt/data/10-ordered/Stav10"
+                ]
+                existing_sessions = [s for s in default_sessions if os.path.exists(s)]
+                
+                res = {
+                    'models': models,
+                    'scalers': scalers,
+                    'suggested_sessions': existing_sessions,
+                    'active_model': str(state.model_path) if state.model_path else None,
+                    'active_scaler': str(state.scaler_path) if state.scaler_path else None,
+                    'active_session': str(state.session_path) if state.session_path else None,
+                    'num_features': state.num_features
+                }
+                self.send_json(res)
+            except Exception as e:
+                self.send_error_json(str(e))
+            return
+            
+        elif path == '/api/change_settings':
+            try:
+                session_path = params.get('session_path', [None])[0]
+                model_name = params.get('model_name', [None])[0]
+                scaler_name = params.get('scaler_name', [None])[0]
+                
+                if model_name:
+                    state.load_model(model_name, scaler_name)
+                    
+                if session_path:
+                    state.load_session(session_path)
+                    state.process_all_cells()
+                    
+                self.send_json({
+                    'status': 'success',
+                    'active_model': str(state.model_path) if state.model_path else None,
+                    'active_scaler': str(state.scaler_path) if state.scaler_path else None,
+                    'active_session': str(state.session_path) if state.session_path else None,
+                    'num_features': state.num_features
+                })
+            except Exception as e:
+                self.send_error_json(str(e))
+            return
+            
+        elif path == '/api/session_info':
+            try:
+                if not state.session_path:
+                    self.send_json({'loaded': False})
+                    return
+                    
+                state.process_all_cells()
+                
+                y_true = state.y_true
+                y_probs = state.y_probs
+                y_preds = state.y_preds
+                
+                tp = np.where((y_preds == 1) & (y_true == 1))[0].tolist()
+                fp = np.where((y_preds == 1) & (y_true == 0))[0].tolist()
+                tn = np.where((y_preds == 0) & (y_true == 0))[0].tolist()
+                fn = np.where((y_preds == 0) & (y_true == 1))[0].tolist()
+                
+                uncertain = np.where((y_probs > 0.15) & (y_probs < 0.85))[0].tolist()
+                
+                res = {
+                    'loaded': True,
+                    'session_name': state.session_path.name,
+                    'session_path': str(state.session_path),
+                    'total_rois': len(y_true),
+                    'num_cells_gt': int(np.sum(y_true)),
+                    'num_cells_pred': int(np.sum(y_preds)),
+                    'gt_path': getattr(state, 'gt_path', 'None'),
+                    'gt_file': getattr(state, 'gt_file', 'None'),
+                    'categories': {
+                        'true_positives': tp,
+                        'false_positives': fp,
+                        'true_negatives': tn,
+                        'false_negatives': fn,
+                        'uncertain': uncertain
+                    },
+                    'probabilities': y_probs.tolist(),
+                    'ground_truth': y_true.tolist(),
+                    'num_features': state.num_features
+                }
+                self.send_json(res)
+            except Exception as e:
+                self.send_error_json(str(e))
+            return
+            
+        elif path == '/api/explain_cell':
+            try:
+                cell_idx = int(params.get('cell_idx', [0])[0])
+                session_path = params.get('session_path', [None])[0]
+                model_name = params.get('model_name', [None])[0]
+                scaler_name = params.get('scaler_name', [None])[0]
+                
+                settings_changed = False
+                if model_name and (not state.model_path or (state.model_path.name != model_name and str(state.model_path) != model_name) or (scaler_name and (not state.scaler_path or (state.scaler_path.name != scaler_name and str(state.scaler_path) != scaler_name)))):
+                    state.load_model(model_name, scaler_name)
+                    settings_changed = True
+                    
+                if session_path and (not state.session_path or str(state.session_path) != session_path):
+                    state.load_session(session_path)
+                    settings_changed = True
+                    
+                if settings_changed:
+                    state.process_all_cells()
+                    
+                if not state.session_path:
+                    raise ValueError("No session loaded.")
+                if cell_idx < 0 or cell_idx >= len(state.F):
+                    raise ValueError(f"Cell index {cell_idx} out of range [0, {len(state.F)-1}].")
+                    
+                explanation = state.get_cell_explanation(cell_idx)
+                self.send_json(explanation)
+            except Exception as e:
+                self.send_error_json(str(e))
+            return
+            
+        elif path == '/api/category_analysis':
+            try:
+                threshold = float(params.get('threshold', [0.5])[0])
+                state.process_all_cells()
+                
+                y_true = state.y_true
+                y_probs = state.y_probs
+                
+                # Predict based on threshold
+                y_preds = (y_probs >= threshold).astype(int)
+                
+                # Categories
+                tp_indices = np.where((y_preds == 1) & (y_true == 1))[0]
+                fp_indices = np.where((y_preds == 1) & (y_true == 0))[0]
+                tn_indices = np.where((y_preds == 0) & (y_true == 0))[0]
+                fn_indices = np.where((y_preds == 0) & (y_true == 1))[0]
+                
+                categories = {
+                    'TP': tp_indices,
+                    'FP': fp_indices,
+                    'TN': tn_indices,
+                    'FN': fn_indices
+                }
+                
+                # Feature statistics
+                X = state.X_extracted
+                feature_names = state.feature_names
+                
+                overall_means = np.mean(X, axis=0)
+                overall_stds = np.std(X, axis=0)
+                # Avoid division by zero
+                overall_stds[overall_stds == 0] = 1e-6
+                
+                analysis = {}
+                for cat_name, idxs in categories.items():
+                    if len(idxs) == 0:
+                        analysis[cat_name] = []
+                        continue
+                    
+                    cat_X = X[idxs]
+                    cat_means = np.mean(cat_X, axis=0)
+                    z_scores = (cat_means - overall_means) / overall_stds
+                    
+                    cat_features = []
+                    for f_idx, f_name in enumerate(feature_names):
+                        cat_features.append({
+                            'feature': f_name,
+                            'z_score': float(z_scores[f_idx]),
+                            'cat_mean': float(cat_means[f_idx]),
+                            'overall_mean': float(overall_means[f_idx]),
+                            'overall_std': float(overall_stds[f_idx])
+                        })
+                    
+                    # Sort by absolute z_score descending
+                    cat_features.sort(key=lambda x: abs(x['z_score']), reverse=True)
+                    analysis[cat_name] = cat_features
+                    
+                self.send_json(analysis)
+            except Exception as e:
+                self.send_error_json(str(e))
+            return
+            
+        elif path == '/api/compare_cells':
+            try:
+                cell_a = int(params.get('cell_a', [0])[0])
+                cell_b = int(params.get('cell_b', [0])[0])
+                
+                if not state.session_path:
+                    raise ValueError("No session loaded.")
+                n_cells = len(state.F)
+                if cell_a < 0 or cell_a >= n_cells or cell_b < 0 or cell_b >= n_cells:
+                    raise ValueError(f"Cell indices must be between 0 and {n_cells-1}")
+                    
+                # Centroids
+                cent_a = state.stat[cell_a]['med'] # [y, x]
+                cent_b = state.stat[cell_b]['med'] # [y, x]
+                dist = float(np.sqrt((cent_a[0] - cent_b[0])**2 + (cent_a[1] - cent_b[1])**2))
+                
+                # Pearson Correlation
+                trace_a = state.F[cell_a]
+                trace_b = state.F[cell_b]
+                if np.std(trace_a) > 0 and np.std(trace_b) > 0:
+                    corr_f = float(np.corrcoef(trace_a, trace_b)[0, 1])
+                else:
+                    corr_f = 0.0
+                    
+                # Calculate corrected F correlation
+                fneu_a = state.Fneu[cell_a]
+                fneu_b = state.Fneu[cell_b]
+                fcorr_a = trace_a - 0.7 * fneu_a
+                fcorr_b = trace_b - 0.7 * fneu_b
+                if np.std(fcorr_a) > 0 and np.std(fcorr_b) > 0:
+                    corr_fcorr = float(np.corrcoef(fcorr_a, fcorr_b)[0, 1])
+                else:
+                    corr_fcorr = 0.0
+                    
+                # Overlap
+                set_a = set(zip(state.stat[cell_a]['ypix'], state.stat[cell_a]['xpix']))
+                set_b = set(zip(state.stat[cell_b]['ypix'], state.stat[cell_b]['xpix']))
+                intersection = len(set_a.intersection(set_b))
+                union = len(set_a.union(set_b))
+                iou = float(intersection / union) if union > 0 else 0.0
+                
+                res = {
+                    'cell_a': cell_a,
+                    'cell_b': cell_b,
+                    'centroid_a': [float(cent_a[0]), float(cent_a[1])],
+                    'centroid_b': [float(cent_b[0]), float(cent_b[1])],
+                    'distance_px': dist,
+                    'corr_f': corr_f,
+                    'corr_fcorr': corr_fcorr,
+                    'intersection_pixels': intersection,
+                    'iou': iou
+                }
+                self.send_json(res)
+            except Exception as e:
+                self.send_error_json(str(e))
+            return
+            
+        else:
+            self.send_response(404)
+            self.end_headers()
+            self.wfile.write(b"Not Found")
+            
+    def send_json(self, data):
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        self.wfile.write(json.dumps(data).encode('utf-8'))
+        
+    def send_error_json(self, message):
+        self.send_response(500)
+        self.send_header('Content-type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        self.wfile.write(json.dumps({'error': message}).encode('utf-8'))
+
+# ==========================================
+# 5. BEAUTIFUL FRONTEND HTML/JS/CSS
+# ==========================================
+
+HTML_TEMPLATE = """<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Suite2p Cell Classification Explainability Dashboard</title>
+    <!-- Tailwind CSS (via CDN) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Outfit -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Plotly.js -->
+    <script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Outfit', 'sans-serif'],
+                    },
+                    colors: {
+                        brand: {
+                            50: '#f2f7ff',
+                            100: '#e1eeff',
+                            200: '#bcdbff',
+                            500: '#3b82f6',
+                            600: '#2563eb',
+                            700: '#1d4ed8',
+                            900: '#1e3a8a',
+                            darkBg: '#0b0f19',
+                            cardBg: '#151d30',
+                            border: '#1f2d47'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #0b0f19;
+            color: #f3f4f6;
+        }
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0b0f19;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #1f2d47;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #3b82f6;
+        }
+        .glassmorphism {
+            background: rgba(21, 29, 48, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+    </style>
+</head>
+<body class="font-sans antialiased overflow-x-hidden">
+
+    <!-- HEADER -->
+    <header class="border-b border-brand-border bg-brand-cardBg/50 sticky top-0 z-50 backdrop-blur-md">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+            <div class="flex items-center gap-3">
+                <div class="bg-blue-600 text-white p-2 rounded-xl shadow-lg shadow-blue-500/20">
+                    <i class="fa-solid fa-microscope text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold tracking-tight bg-gradient-to-r from-blue-400 via-indigo-200 to-purple-400 bg-clip-text text-transparent">
+                        Suite2p AI Decision Explainer
+                    </h1>
+                    <p class="text-xs text-gray-400">Local Feature Explainability & Sensitivity Analysis Tool</p>
+                </div>
+            </div>
+            
+            <div class="flex items-center gap-4">
+                <span class="text-xs px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center gap-1.5">
+                    <span class="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span> Server Active
+                </span>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+        
+        <!-- SETTINGS PANEL (CONFIGURABILITY BAR) -->
+        <section class="glassmorphism p-5 rounded-2xl shadow-xl space-y-4">
+            <div class="flex flex-wrap gap-4 items-end">
+                <!-- Session Path -->
+                <div class="flex-1 min-w-[280px]">
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5 flex items-center gap-1.5">
+                        <i class="fa-regular fa-folder-open text-blue-400"></i> Suite2p Session Folder Path
+                    </label>
+                    <div class="flex gap-2">
+                        <input type="text" id="session-path-input" 
+                               class="w-full bg-brand-darkBg border border-brand-border rounded-xl px-4 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-blue-500 transition" 
+                               placeholder="e.g. /mnt/data/1-ordered/Stav1">
+                    </div>
+                </div>
+                
+                <!-- Model Selection -->
+                <div class="flex-1 min-w-[240px]">
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5 flex items-center gap-1.5">
+                        <i class="fa-solid fa-brain text-purple-400"></i> AI Model File (.pkl)
+                    </label>
+                    <input type="text" id="model-select" list="model-options" 
+                           class="w-full bg-brand-darkBg border border-brand-border rounded-xl px-3 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-blue-500 transition"
+                           placeholder="Select or enter absolute model path...">
+                    <datalist id="model-options"></datalist>
+                </div>
+                
+                <!-- Scaler Selection -->
+                <div class="flex-1 min-w-[200px]">
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5 flex items-center gap-1.5">
+                        <i class="fa-solid fa-sliders text-indigo-400"></i> Scaler (For MLP)
+                    </label>
+                    <input type="text" id="scaler-select" list="scaler-options" 
+                           class="w-full bg-brand-darkBg border border-brand-border rounded-xl px-3 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-blue-500 transition"
+                           placeholder="Select or enter absolute scaler path...">
+                    <datalist id="scaler-options"></datalist>
+                </div>
+                
+                <!-- Probability Threshold -->
+                <div class="w-48">
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5 flex items-center gap-1.5">
+                        <i class="fa-solid fa-circle-nodes text-yellow-400"></i> Predict Threshold
+                    </label>
+                    <div class="flex items-center gap-3 bg-brand-darkBg border border-brand-border rounded-xl px-3 py-2 text-sm text-gray-200 h-[42px]">
+                        <input type="range" id="threshold-slider" min="0.05" max="0.95" step="0.05" value="0.80"
+                               class="w-full h-1 bg-brand-border rounded-lg appearance-none cursor-pointer accent-blue-500"
+                               oninput="document.getElementById('threshold-value').textContent = parseFloat(this.value).toFixed(2); updateThreshold(parseFloat(this.value));">
+                        <span class="font-bold text-blue-400 text-sm whitespace-nowrap" id="threshold-value">0.80</span>
+                    </div>
+                </div>
+                
+                <!-- Apply Button -->
+                <div>
+                    <button onclick="applySettings()" id="apply-btn"
+                            class="bg-blue-600 hover:bg-blue-500 text-white font-medium px-6 py-2.5 rounded-xl shadow-lg shadow-blue-500/10 hover:shadow-blue-500/25 active:scale-95 transition flex items-center gap-2">
+                        <i class="fa-solid fa-sync"></i> Apply Settings
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Suggested paths -->
+            <div id="suggested-sessions" class="text-xs text-gray-400 flex flex-wrap items-center gap-2">
+                <span class="font-semibold text-gray-500 uppercase tracking-wide">Quick-Load Workspace Paths:</span>
+            </div>
+        </section>
+
+        <!-- NO SESSION PLACEHOLDER -->
+        <section id="no-session-card" class="glassmorphism p-12 rounded-3xl text-center space-y-4">
+            <div class="mx-auto w-16 h-16 rounded-2xl bg-brand-border flex items-center justify-center text-blue-400">
+                <i class="fa-solid fa-circle-info text-2xl"></i>
+            </div>
+            <div class="space-y-2">
+                <h3 class="text-lg font-semibold">No Suite2p Session Loaded</h3>
+                <p class="text-sm text-gray-400 max-w-md mx-auto">Please enter a valid Suite2p session directory path containing F.npy, Fneu.npy, and stat.npy to begin cell-level decision explanations.</p>
+            </div>
+        </section>
+
+        <!-- DASHBOARD CONTAINER -->
+        <div id="dashboard-content" class="hidden space-y-6">
+            
+            <!-- Ground Truth Missing Warning Banner -->
+            <div id="gt-warning-banner" class="hidden bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 flex items-start gap-3 text-amber-400">
+                <i class="fa-solid fa-triangle-exclamation text-lg mt-0.5"></i>
+                <div class="space-y-1">
+                    <h4 class="font-bold text-sm">No Curated Ground Truth File Loaded</h4>
+                    <p class="text-xs text-gray-300 leading-relaxed font-normal">
+                        Neither <code class="font-mono bg-brand-darkBg/60 px-1 py-0.5 rounded text-amber-300 text-[11px]">iscell_final.npy</code> nor <code class="font-mono bg-brand-darkBg/60 px-1 py-0.5 rounded text-amber-300 text-[11px]">iscell_manual.npy</code> was found in this session directory. 
+                        Ground truth has been initialized to all zeros. True Positives and False Negatives counts will remain 0, and metrics (Precision, Recall, F1) cannot be calculated.
+                        To evaluate model performance, please run curation in the Suite2p GUI and copy/rename the resulting <code class="font-mono bg-brand-darkBg/60 px-1 py-0.5 rounded text-amber-300 text-[11px]">iscell.npy</code> to <code class="font-mono bg-brand-darkBg/60 px-1 py-0.5 rounded text-amber-300 text-[11px]">iscell_final.npy</code>.
+                    </p>
+                </div>
+            </div>
+            
+            <!-- ROW 1: STATS & NAVIGATION -->
+            <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                <!-- Overview Stats -->
+                <div class="glassmorphism p-5 rounded-2xl space-y-4 lg:col-span-1 flex flex-col justify-between">
+                    <div>
+                        <h3 class="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">Session Overview</h3>
+                        <div class="space-y-3">
+                            <div>
+                                <div class="text-3xl font-extrabold text-white" id="session-name-display">-</div>
+                                <div class="text-xs text-gray-400">Active Session</div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-4 pt-2">
+                                <div>
+                                    <div class="text-xl font-bold text-gray-200" id="total-rois-display">0</div>
+                                    <div class="text-[10px] text-gray-400 uppercase font-semibold">Total ROIs</div>
+                                </div>
+                                <div>
+                                    <div class="text-xl font-bold text-blue-400" id="detected-features-display">0</div>
+                                    <div class="text-[10px] text-gray-400 uppercase font-semibold">Model Features</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="pt-4 border-t border-brand-border space-y-1">
+                        <div class="flex justify-between text-xs">
+                            <span class="text-gray-400">Ground Truth Cells:</span>
+                            <span class="font-bold text-emerald-400" id="gt-cells-display">0</span>
+                        </div>
+                        <div class="flex justify-between text-xs">
+                            <span class="text-gray-400">AI Predicted Cells:</span>
+                            <span class="font-bold text-blue-400" id="pred-cells-display">0</span>
+                        </div>
+                        <div class="pt-2 border-t border-brand-border/40 mt-2 space-y-1">
+                            <div class="flex justify-between text-xs">
+                                <span class="text-gray-400 font-medium">Precision:</span>
+                                <span class="font-bold text-blue-300" id="precision-display">0.0%</span>
+                            </div>
+                            <div class="flex justify-between text-xs">
+                                <span class="text-gray-400 font-medium">Recall:</span>
+                                <span class="font-bold text-purple-300" id="recall-display">0.0%</span>
+                            </div>
+                            <div class="flex justify-between text-xs">
+                                <span class="text-gray-400 font-medium">F1-Score:</span>
+                                <span class="font-bold text-amber-300" id="f1-display">0.0%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Navigation panel -->
+                <div class="glassmorphism p-5 rounded-2xl lg:col-span-3 flex flex-col justify-between">
+                    <div>
+                        <h3 class="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3 flex justify-between items-center">
+                            <span>ROI Navigation Index</span>
+                            <div class="flex items-center gap-2">
+                                <span class="text-amber-400 text-[10px] hidden font-semibold px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 animate-pulse" id="navigation-active-category"></span>
+                                <span class="text-blue-400 text-[10px]" id="navigation-active-model">-</span>
+                            </div>
+                        </h3>
+                        
+                        <div class="flex items-center gap-3">
+                            <!-- Cell index input -->
+                            <div class="flex items-center bg-brand-darkBg border border-brand-border rounded-xl px-3 py-1 flex-1 max-w-[200px]">
+                                <span class="text-xs font-semibold text-gray-500 mr-2 uppercase">ROI</span>
+                                <input type="number" id="cell-idx-input" 
+                                       class="w-full bg-transparent text-lg font-bold text-white focus:outline-none" 
+                                       min="0" value="0">
+                            </div>
+                            
+                            <button onclick="loadCell(parseInt(document.getElementById('cell-idx-input').value))"
+                                    class="bg-brand-border hover:bg-brand-border/80 text-gray-200 font-medium px-4 py-2.5 rounded-xl text-sm transition flex items-center gap-2">
+                                Go <i class="fa-solid fa-arrow-right"></i>
+                            </button>
+                            
+                            <!-- Arrow navigation -->
+                            <div class="flex items-center gap-1.5 ml-auto">
+                                <button onclick="navigateCell(-1)" class="p-2.5 rounded-xl bg-brand-border hover:bg-brand-border/80 text-gray-200 transition">
+                                    <i class="fa-solid fa-chevron-left"></i> Prev
+                                </button>
+                                <button onclick="navigateCell(1)" class="p-2.5 rounded-xl bg-brand-border hover:bg-brand-border/80 text-gray-200 transition">
+                                    Next <i class="fa-solid fa-chevron-right"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Quick Jump filters -->
+                    <div class="pt-4 border-t border-brand-border mt-4">
+                        <div class="text-[10px] uppercase font-semibold text-gray-400 mb-2">Jump to Specific Category:</div>
+                        <div class="flex flex-wrap gap-2">
+                            <button onclick="jumpCategory('true_positives')" id="btn-true_positives"
+                                    class="text-xs px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/10 flex items-center gap-1.5 transition">
+                                <i class="fa-solid fa-check-double"></i> True Positives (<span id="count-tp">0</span>)
+                            </button>
+                            <button onclick="jumpCategory('false_positives')" id="btn-false_positives"
+                                    class="text-xs px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/10 flex items-center gap-1.5 transition">
+                                <i class="fa-solid fa-circle-xmark"></i> False Positives (<span id="count-fp">0</span>)
+                            </button>
+                            <button onclick="jumpCategory('false_negatives')" id="btn-false_negatives"
+                                    class="text-xs px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/10 flex items-center gap-1.5 transition">
+                                <i class="fa-solid fa-triangle-exclamation"></i> False Negatives (<span id="count-fn">0</span>)
+                            </button>
+                            <button onclick="jumpCategory('uncertain')" id="btn-uncertain"
+                                    class="text-xs px-3 py-1.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/10 flex items-center gap-1.5 transition">
+                                <i class="fa-solid fa-question-circle"></i> Uncertain 15-85% (<span id="count-unc">0</span>)
+                            </button>
+                            <button onclick="clearCategoryFilter()" id="btn-clear-filter"
+                                    class="text-xs px-3 py-1.5 rounded-lg bg-gray-500/10 hover:bg-gray-500/20 text-gray-400 border border-gray-500/10 flex items-center gap-1.5 transition hidden">
+                                <i class="fa-solid fa-circle-minus"></i> Clear Filter (All ROIs)
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Category Feature Analysis -->
+                    <div class="pt-4 border-t border-brand-border/60 mt-4">
+                        <div class="text-[10px] uppercase font-semibold text-gray-400 mb-2">Category Feature Profile & Impact:</div>
+                        <div id="category-feature-impact" class="p-3.5 bg-brand-darkBg/60 border border-brand-border/40 rounded-xl text-xs space-y-2">
+                            <span class="text-gray-500 italic">Select a category above (e.g. False Positives) to analyze its distinct feature profile...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MAIN DASHBOARD CONTENT GRID -->
+            <div class="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
+                <!-- LEFT COLUMN: ROI Details (1/4 width on desktop) -->
+                <div class="glassmorphism p-5 rounded-2xl lg:col-span-1 space-y-6 flex flex-col justify-between">
+                    <div>
+                        <h3 class="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-4">ROI Details</h3>
+                        
+                        <div class="space-y-4">
+                            <!-- Circular Gauge for Confidence -->
+                            <div class="flex flex-col items-center justify-center py-2 relative">
+                                <div class="text-center">
+                                    <div class="text-4xl font-extrabold text-white" id="cell-prob-value">0%</div>
+                                    <div class="text-xs text-gray-400 mt-1 uppercase font-semibold tracking-wider">AI Confidence</div>
+                                </div>
+                            </div>
+                            
+                            <!-- Badges -->
+                            <div class="grid grid-cols-2 gap-3 pt-2">
+                                <div class="bg-brand-darkBg/50 p-3 rounded-xl border border-brand-border text-center">
+                                    <div class="text-xs text-gray-400 font-semibold mb-1">GT Label</div>
+                                    <div id="cell-gt-badge" class="text-sm font-bold">-</div>
+                                </div>
+                                <div class="bg-brand-darkBg/50 p-3 rounded-xl border border-brand-border text-center">
+                                    <div class="text-xs text-gray-400 font-semibold mb-1">AI Decision</div>
+                                    <div id="cell-pred-badge" class="text-sm font-bold">-</div>
+                                </div>
+                            </div>
+                            
+                            <!-- Classification Outcome Status -->
+                            <div class="p-3.5 rounded-xl text-center border font-semibold text-sm" id="cell-outcome-badge">
+                                -
+                            </div>
+                            
+                            <!-- Set Comparison ROI Button -->
+                            <button onclick="setComparisonROIA(activeCellIdx)" class="w-full bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 border border-blue-500/20 font-medium py-2 rounded-xl text-xs transition flex items-center justify-center gap-1.5">
+                                <i class="fa-solid fa-code-compare"></i> Set as ROI A for Comparison
+                            </button>
+
+                            <!-- Ground Truth File Source -->
+                            <div class="bg-brand-darkBg/30 p-3 rounded-xl border border-brand-border/60 text-left space-y-1">
+                                <div class="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">GT Source Path</div>
+                                <div id="gt-path-display" class="text-[11px] text-gray-300 font-mono break-all leading-normal" title="No ground truth file loaded.">-</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Spatial Outline Mini-Plot -->
+                    <div class="space-y-2 pt-4 border-t border-brand-border">
+                        <div class="text-xs font-semibold uppercase tracking-wider text-gray-400">Spatial ROI Footprint</div>
+                        <div id="roi-spatial-plot" class="w-full h-48 bg-brand-darkBg/50 rounded-xl overflow-hidden flex items-center justify-center border border-brand-border">
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- RIGHT COLUMN: Local Feature Contribution (3/4 width on desktop) -->
+                <div class="glassmorphism p-5 rounded-2xl lg:col-span-3">
+                    <h3 class="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-4 flex justify-between items-center">
+                        <span>Local Feature Contribution (Why the model decided this)</span>
+                        <div class="flex items-center gap-2">
+                            <span id="shap-not-avail-alert" class="text-xs text-rose-400 font-semibold hidden"><i class="fa-solid fa-triangle-exclamation"></i> TreeSHAP N/A for MLP</span>
+                            <select id="attr-method-select" onchange="updateAttributionChart()" class="bg-brand-darkBg border border-brand-border rounded-lg text-xs text-gray-300 px-2.5 py-1.5 focus:outline-none focus:border-blue-500 transition">
+                                <option value="shap">TreeSHAP Contributions</option>
+                                <option value="ablation">Ablation Contributions</option>
+                                <option value="comparison">Side-by-Side Comparison</option>
+                            </select>
+                        </div>
+                    </h3>
+                    <div id="attribution-chart" class="w-full h-[600px]">
+                    </div>
+                </div>
+            </div>
+
+            <!-- FULL WIDTH SECTIONS BELOW -->
+            <div class="space-y-6 mt-6">
+                <!-- ROI Suppression & Comparison Tool -->
+                <section class="glassmorphism p-5 rounded-2xl">
+                    <h3 class="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-4">ROI Suppression & Comparison Tool</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div class="space-y-4">
+                            <p class="text-xs text-gray-400 leading-relaxed">
+                                Enter two ROI indices to compute their centroid distance, calcium trace Pearson correlation, and pixel-wise overlap. This helps evaluate whether they are candidate duplicates for suppression.
+                            </p>
+                            <div class="flex items-center gap-3">
+                                <div class="flex items-center bg-brand-darkBg border border-brand-border rounded-xl px-3 py-1.5 flex-1 min-w-[80px]">
+                                    <span class="text-xs font-semibold text-gray-500 mr-2 uppercase">ROI A</span>
+                                    <input type="number" id="compare-roi-a" class="w-full min-w-0 bg-transparent font-bold text-white focus:outline-none" min="0" value="0">
+                                </div>
+                                <div class="flex items-center bg-brand-darkBg border border-brand-border rounded-xl px-3 py-1.5 flex-1 min-w-[80px]">
+                                    <span class="text-xs font-semibold text-gray-500 mr-2 uppercase">ROI B</span>
+                                    <input type="number" id="compare-roi-b" class="w-full min-w-0 bg-transparent font-bold text-white focus:outline-none" min="0" value="1">
+                                </div>
+                            </div>
+                            <button onclick="compareROIs()" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-medium px-4 py-3 rounded-xl text-sm transition flex items-center justify-center gap-2">
+                                <i class="fa-solid fa-magnifying-glass-chart"></i> Compare ROIs
+                            </button>
+                        </div>
+                        
+                        <div class="md:col-span-2 bg-brand-darkBg/50 border border-brand-border/60 rounded-xl p-4 flex flex-col justify-center min-h-[140px]" id="comparison-results-container">
+                            <div class="text-center text-gray-500 italic text-sm">Enter ROI indices and click Compare ROIs to view spatial and temporal similarities.</div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Detailed Feature Attribution & Context Comparison -->
+                <section class="glassmorphism p-5 rounded-2xl">
+                    <h3 class="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-4">Detailed Feature Attribution & Context Comparison</h3>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm text-gray-300">
+                            <thead class="text-xs uppercase tracking-wider text-gray-400 bg-brand-darkBg/50 border-b border-brand-border">
+                                <tr>
+                                    <th scope="col" class="px-4 py-3">Feature Name</th>
+                                    <th scope="col" class="px-4 py-3 text-right">TreeSHAP Impact</th>
+                                    <th scope="col" class="px-4 py-3 text-right">Ablation Impact</th>
+                                    <th scope="col" class="px-4 py-3 text-right">Cell Raw Value</th>
+                                    <th scope="col" class="px-4 py-3 text-right">Dataset Avg</th>
+                                    <th scope="col" class="px-4 py-3 text-right">Cells Avg (GT=1)</th>
+                                    <th scope="col" class="px-4 py-3 text-right">Non-Cells Avg (GT=0)</th>
+                                    <th scope="col" class="px-4 py-3 max-w-[280px]">Explanation</th>
+                                </tr>
+                            </thead>
+                            <tbody id="features-table-body" class="divide-y divide-brand-border/50">
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- Fluorescence Calcium Traces -->
+                <section class="glassmorphism p-5 rounded-2xl">
+                    <h3 class="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-4">Fluorescence Calcium Traces</h3>
+                    <div id="trace-plot" class="w-full h-80">
+                    </div>
+                </section>
+            </div>
+        </div>
+    </main>
+
+    <!-- LOADING SPINNER -->
+    <div id="loader" class="hidden fixed inset-0 z-50 bg-brand-darkBg/70 flex flex-col items-center justify-center gap-3 backdrop-blur-sm">
+        <div class="h-10 w-10 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin"></div>
+        <p class="text-sm font-semibold text-gray-300">Calculating explainability attributions...</p>
+    </div>
+
+    <!-- MAIN JAVASCRIPT LOGIC -->
+    <script>
+        let sessionInfo = null;
+        let activeCellIdx = 0;
+        let selectedCategoryList = null;
+        let currentCellExplanation = null;
+        let activeThreshold = 0.80;
+
+        function updateThreshold(val) {
+            activeThreshold = val;
+            recalculateMetricsAndCategories();
+            
+            // If we are browsing a specific category, adjust the active cell if needed
+            if (activeCategory) {
+                let cells = sessionInfo.categories[activeCategory];
+                if (!cells || cells.length === 0) {
+                    alert(`No ROIs remaining in category: ${activeCategory.replace('_', ' ')}. Clearing filter.`);
+                    clearCategoryFilter();
+                } else if (cells.indexOf(activeCellIdx) === -1) {
+                    // Current cell is no longer in this category. Load the closest cell in the new list.
+                    let closestCell = cells[0];
+                    let minDiff = Math.abs(cells[0] - activeCellIdx);
+                    for (let i = 1; i < cells.length; i++) {
+                        let diff = Math.abs(cells[i] - activeCellIdx);
+                        if (diff < minDiff) {
+                            minDiff = diff;
+                            closestCell = cells[i];
+                        }
+                    }
+                    loadCell(closestCell);
+                } else {
+                    updateCellOutcomeUI();
+                }
+            } else {
+                updateCellOutcomeUI();
+            }
+        }
+
+        function updateCellOutcomeUI() {
+            if (!currentCellExplanation) return;
+            let prob = currentCellExplanation.probability;
+            let label = currentCellExplanation.label;
+            let isCellPred = (prob >= activeThreshold) ? 1 : 0;
+            
+            let predBadge = document.getElementById('cell-pred-badge');
+            if (isCellPred === 1) {
+                predBadge.className = "text-sm font-bold text-emerald-400";
+                predBadge.textContent = "Cell (1)";
+            } else {
+                predBadge.className = "text-sm font-bold text-rose-400";
+                predBadge.textContent = "Non-Cell (0)";
+            }
+            
+            let outcomeBadge = document.getElementById('cell-outcome-badge');
+            if (label === 1 && isCellPred === 1) {
+                outcomeBadge.className = "p-3.5 rounded-xl text-center border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 font-semibold text-sm";
+                outcomeBadge.innerHTML = '<i class="fa-solid fa-circle-check"></i> True Positive (Correct Cell)';
+            } else if (label === 0 && isCellPred === 0) {
+                outcomeBadge.className = "p-3.5 rounded-xl text-center border border-gray-700 bg-gray-800/40 text-gray-400 font-semibold text-sm";
+                outcomeBadge.innerHTML = '<i class="fa-solid fa-circle-check"></i> True Negative (Correct Noise)';
+            } else if (label === 0 && isCellPred === 1) {
+                outcomeBadge.className = "p-3.5 rounded-xl text-center border border-rose-500/30 bg-rose-500/10 text-rose-400 font-semibold text-sm animate-pulse";
+                outcomeBadge.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> False Positive (AI Mistake!)';
+            } else {
+                outcomeBadge.className = "p-3.5 rounded-xl text-center border border-amber-500/30 bg-amber-500/10 text-amber-400 font-semibold text-sm animate-pulse";
+                outcomeBadge.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> False Negative (AI Missed!)';
+            }
+        }
+
+        function recalculateMetricsAndCategories() {
+            if (!sessionInfo || !sessionInfo.loaded) return;
+            
+            let tp = [];
+            let fp = [];
+            let tn = [];
+            let fn = [];
+            let uncertain = [];
+            
+            let probs = sessionInfo.probabilities;
+            let gt = sessionInfo.ground_truth;
+            
+            for (let i = 0; i < probs.length; i++) {
+                let p = probs[i];
+                let g = gt[i];
+                let pred = (p >= activeThreshold) ? 1 : 0;
+                
+                if (pred === 1 && g === 1) tp.push(i);
+                else if (pred === 1 && g === 0) fp.push(i);
+                else if (pred === 0 && g === 0) tn.push(i);
+                else if (pred === 0 && g === 1) fn.push(i);
+                
+                if (p > 0.15 && p < 0.85) {
+                    uncertain.push(i);
+                }
+            }
+            
+            sessionInfo.categories = {
+                true_positives: tp,
+                false_positives: fp,
+                true_negatives: tn,
+                false_negatives: fn,
+                uncertain: uncertain
+            };
+            
+            let tp_count = tp.length;
+            let fp_count = fp.length;
+            let fn_count = fn.length;
+            
+            let precision = tp_count + fp_count > 0 ? tp_count / (tp_count + fp_count) : 0;
+            let recall = tp_count + fn_count > 0 ? tp_count / (tp_count + fn_count) : 0;
+            let f1 = precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : 0;
+            
+            document.getElementById('pred-cells-display').textContent = tp_count + fp_count;
+            document.getElementById('count-tp').textContent = tp_count;
+            document.getElementById('count-fp').textContent = fp_count;
+            document.getElementById('count-fn').textContent = fn_count;
+            document.getElementById('count-unc').textContent = uncertain.length;
+            
+            document.getElementById('precision-display').textContent = (precision * 100).toFixed(1) + '%';
+            document.getElementById('recall-display').textContent = (recall * 100).toFixed(1) + '%';
+            document.getElementById('f1-display').textContent = (f1 * 100).toFixed(1) + '%';
+            
+            // Fetch category analysis after updating categories
+            fetchCategoryAnalysis();
+        }
+        
+        window.addEventListener('DOMContentLoaded', () => {
+            loadModelsList();
+            
+            document.getElementById('cell-idx-input').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    let val = parseInt(e.target.value);
+                    if (!isNaN(val)) loadCell(val);
+                }
+            });
+        });
+
+        function showLoader(show) {
+            document.getElementById('loader').classList.toggle('hidden', !show);
+        }
+
+        async function loadModelsList() {
+            try {
+                let res = await fetch('/api/models');
+                let data = await res.json();
+                
+                let modelDatalist = document.getElementById('model-options');
+                if (modelDatalist) {
+                    modelDatalist.innerHTML = '';
+                    data.models.forEach(m => {
+                        let opt = document.createElement('option');
+                        opt.value = m;
+                        modelDatalist.appendChild(opt);
+                    });
+                }
+                let modelSelect = document.getElementById('model-select');
+                if (modelSelect && data.active_model) {
+                    modelSelect.value = data.active_model;
+                }
+                
+                let scalerDatalist = document.getElementById('scaler-options');
+                if (scalerDatalist) {
+                    scalerDatalist.innerHTML = '<option value="">[Auto-Detect Scaler]</option>';
+                    data.scalers.forEach(s => {
+                        let opt = document.createElement('option');
+                        opt.value = s;
+                        scalerDatalist.appendChild(opt);
+                    });
+                }
+                let scalerSelect = document.getElementById('scaler-select');
+                if (scalerSelect) {
+                    scalerSelect.value = data.active_scaler || '';
+                }
+                
+                let sugDiv = document.getElementById('suggested-sessions');
+                sugDiv.innerHTML = '<span class="font-semibold text-gray-500 uppercase tracking-wide">Quick-Load Workspace Paths:</span>';
+                if (data.suggested_sessions && data.suggested_sessions.length > 0) {
+                    data.suggested_sessions.forEach(p => {
+                        let btn = document.createElement('button');
+                        btn.className = "px-2 py-1 rounded bg-brand-border/40 hover:bg-brand-border text-gray-300 font-semibold cursor-pointer transition ml-2";
+                        let parts = p.split('/');
+                        btn.textContent = parts[parts.length - 1] || p;
+                        btn.onclick = () => {
+                            document.getElementById('session-path-input').value = p;
+                            applySettings();
+                        };
+                        sugDiv.appendChild(btn);
+                    });
+                } else {
+                    sugDiv.innerHTML += '<span class="text-gray-500 italic ml-2">None found, enter manually</span>';
+                }
+                
+                if (data.active_session) {
+                    document.getElementById('session-path-input').value = data.active_session;
+                    loadSessionInfo();
+                }
+            } catch(e) {
+                console.error("Error loading models:", e);
+            }
+        }
+
+        async function applySettings() {
+            let sessionPath = document.getElementById('session-path-input').value.trim();
+            let modelName = document.getElementById('model-select').value;
+            let scalerName = document.getElementById('scaler-select').value;
+            
+            if (!sessionPath) {
+                alert("Please enter a Suite2p session folder path.");
+                return;
+            }
+            
+            showLoader(true);
+            try {
+                let url = `/api/change_settings?session_path=${encodeURIComponent(sessionPath)}&model_name=${encodeURIComponent(modelName)}&scaler_name=${encodeURIComponent(scalerName)}`;
+                let res = await fetch(url);
+                let data = await res.json();
+                if (data.error) {
+                    alert("Error: " + data.error);
+                } else {
+                    await loadSessionInfo();
+                }
+            } catch(e) {
+                alert("Error applying settings: " + e);
+            } finally {
+                showLoader(false);
+            }
+        }
+
+        async function loadSessionInfo() {
+            showLoader(true);
+            try {
+                let res = await fetch('/api/session_info');
+                let data = await res.json();
+                
+                if (data.loaded) {
+                    sessionInfo = data;
+                    
+                    document.getElementById('session-name-display').textContent = data.session_name;
+                    document.getElementById('total-rois-display').textContent = data.total_rois;
+                    document.getElementById('gt-cells-display').textContent = data.num_cells_gt;
+                    
+                    let gtPathEl = document.getElementById('gt-path-display');
+                    let gtWarningBanner = document.getElementById('gt-warning-banner');
+                    if (gtPathEl) {
+                        gtPathEl.textContent = data.gt_path || "None";
+                        gtPathEl.title = data.gt_path || "No curated GT file loaded.";
+                    }
+                    if (gtWarningBanner) {
+                        if (data.gt_path === "None" || !data.gt_path) {
+                            gtWarningBanner.classList.remove('hidden');
+                        } else {
+                            gtWarningBanner.classList.add('hidden');
+                        }
+                    }
+                    
+                    let modelName = document.getElementById('model-select').value;
+                    document.getElementById('navigation-active-model').textContent = `Using Model: ${modelName}`;
+                    document.getElementById('detected-features-display').textContent = data.num_features;
+                    
+                    activeCategory = null;
+                    if (typeof updateCategoryButtonStyles === 'function') {
+                        updateCategoryButtonStyles();
+                    }
+                    recalculateMetricsAndCategories();
+                    
+                    document.getElementById('no-session-card').classList.add('hidden');
+                    document.getElementById('dashboard-content').classList.remove('hidden');
+                    
+                    let firstCell = 0;
+                    if (sessionInfo.categories.false_positives.length > 0) {
+                        firstCell = sessionInfo.categories.false_positives[0];
+                    } else if (sessionInfo.categories.uncertain.length > 0) {
+                        firstCell = sessionInfo.categories.uncertain[0];
+                    }
+                    loadCell(firstCell);
+                }
+            } catch(e) {
+                console.error("Error loading session info:", e);
+                alert("Error loading session info: " + e);
+            } finally {
+                showLoader(false);
+            }
+        }
+
+        async function loadCell(cellIdx) {
+            if (cellIdx < 0 || cellIdx >= sessionInfo.total_rois) {
+                alert(`Cell index ${cellIdx} is out of bounds.`);
+                return;
+            }
+            
+            showLoader(true);
+            activeCellIdx = cellIdx;
+            document.getElementById('cell-idx-input').value = cellIdx;
+            
+            try {
+                let sessionPath = document.getElementById('session-path-input').value.trim();
+                let modelName = document.getElementById('model-select').value;
+                let scalerName = document.getElementById('scaler-select').value;
+                
+                let url = `/api/explain_cell?cell_idx=${cellIdx}`;
+                if (sessionPath) url += `&session_path=${encodeURIComponent(sessionPath)}`;
+                if (modelName) url += `&model_name=${encodeURIComponent(modelName)}`;
+                if (scalerName) url += `&scaler_name=${encodeURIComponent(scalerName)}`;
+                
+                let res = await fetch(url);
+                let data = await res.json();
+                
+                if (data.error) {
+                    alert("Error explaining cell: " + data.error);
+                    return;
+                }
+                
+                currentCellExplanation = data;
+                
+                let probPerc = Math.round(data.probability * 100);
+                document.getElementById('cell-prob-value').textContent = `${probPerc}%`;
+                
+                let gtBadge = document.getElementById('cell-gt-badge');
+                if (data.label === 1) {
+                    gtBadge.className = "text-sm font-bold text-emerald-400";
+                    gtBadge.textContent = "Cell (1)";
+                } else {
+                    gtBadge.className = "text-sm font-bold text-rose-400";
+                    gtBadge.textContent = "Non-Cell (0)";
+                }
+                
+                updateCellOutcomeUI();
+                
+                let selectEl = document.getElementById('attr-method-select');
+                let alertEl = document.getElementById('shap-not-avail-alert');
+                
+                if (data.has_shap) {
+                    selectEl.options[0].disabled = false;
+                    selectEl.options[2].disabled = false;
+                    alertEl.classList.add('hidden');
+                    if (selectEl.value !== 'ablation' && selectEl.value !== 'comparison') {
+                        selectEl.value = 'shap';
+                    }
+                } else {
+                    selectEl.options[0].disabled = true;
+                    selectEl.options[2].disabled = true;
+                    selectEl.value = 'ablation';
+                    alertEl.classList.remove('hidden');
+                }
+                
+                updateAttributionChart();
+                plotCalciumTrace(data.trace);
+                drawSpatialROI(data.roi);
+                renderFeaturesTable(data.attributions);
+                
+            } catch(e) {
+                console.error("Error loading cell data:", e);
+                alert("Error loading cell data: " + e);
+            } finally {
+                showLoader(false);
+            }
+        }
+
+        let activeCategory = null;
+
+        function updateCategoryButtonStyles() {
+            const categories = ['true_positives', 'false_positives', 'false_negatives', 'uncertain'];
+            const normalClasses = {
+                'true_positives': 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border-emerald-500/10',
+                'false_positives': 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border-rose-500/10',
+                'false_negatives': 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border-amber-500/10',
+                'uncertain': 'bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border-blue-500/10'
+            };
+            const activeClasses = {
+                'true_positives': 'bg-emerald-500 text-white border-emerald-400 shadow-md shadow-emerald-500/20',
+                'false_positives': 'bg-rose-500 text-white border-rose-400 shadow-md shadow-rose-500/20',
+                'false_negatives': 'bg-amber-500 text-white border-amber-400 shadow-md shadow-amber-500/20',
+                'uncertain': 'bg-blue-500 text-white border-blue-400 shadow-md shadow-blue-500/20'
+            };
+
+            categories.forEach(cat => {
+                const btn = document.getElementById(`btn-${cat}`);
+                if (btn) {
+                    btn.className = "text-xs px-3 py-1.5 rounded-lg border flex items-center gap-1.5 transition " + 
+                                    (activeCategory === cat ? activeClasses[cat] : normalClasses[cat]);
+                }
+            });
+
+            const clearBtn = document.getElementById('btn-clear-filter');
+            if (clearBtn) {
+                if (activeCategory) {
+                    clearBtn.classList.remove('hidden');
+                } else {
+                    clearBtn.classList.add('hidden');
+                }
+            }
+
+            const indicator = document.getElementById('navigation-active-category');
+            if (indicator) {
+                if (activeCategory) {
+                    let displayName = activeCategory.replace('_', ' ');
+                    displayName = displayName.charAt(0).toUpperCase() + displayName.slice(1);
+                    indicator.textContent = `Browsing: ${displayName}`;
+                    indicator.classList.remove('hidden');
+                } else {
+                    indicator.classList.add('hidden');
+                }
+            }
+        }
+
+        function clearCategoryFilter() {
+            activeCategory = null;
+            updateCategoryButtonStyles();
+            updateCategoryAnalysisUI();
+        }
+
+        function navigateCell(step) {
+            if (activeCategory) {
+                let cells = sessionInfo.categories[activeCategory];
+                if (cells && cells.length > 0) {
+                    let currentPos = cells.indexOf(activeCellIdx);
+                    if (currentPos !== -1) {
+                        let nextPos = currentPos + step;
+                        if (nextPos >= 0 && nextPos < cells.length) {
+                            loadCell(cells[nextPos]);
+                        } else {
+                            alert(`Reached the end of the ${activeCategory.replace('_', ' ')} list.`);
+                        }
+                    } else {
+                        loadCell(cells[0]);
+                    }
+                }
+            } else {
+                let nextCell = activeCellIdx + step;
+                if (nextCell >= 0 && nextCell < sessionInfo.total_rois) {
+                    loadCell(nextCell);
+                }
+            }
+        }
+
+        function jumpCategory(cat) {
+            let cells = sessionInfo.categories[cat];
+            if (!cells || cells.length === 0) {
+                alert(`No ROIs in category: ${cat}`);
+                return;
+            }
+            
+            if (activeCategory === cat) {
+                activeCategory = null;
+                updateCategoryButtonStyles();
+                updateCategoryAnalysisUI();
+                return;
+            }
+            
+            activeCategory = cat;
+            updateCategoryButtonStyles();
+            updateCategoryAnalysisUI();
+            loadCell(cells[0]);
+        }
+
+        function updateAttributionChart() {
+            if (!currentCellExplanation) return;
+            
+            let method = document.getElementById('attr-method-select').value;
+            let attrs = currentCellExplanation.attributions;
+            
+            let traces = [];
+            
+            if (method === 'shap' && currentCellExplanation.has_shap) {
+                let sorted = [...attrs].sort((a, b) => a.shap_attribution - b.shap_attribution);
+                let yNames = sorted.map(a => a.name);
+                let xVals = sorted.map(a => a.shap_attribution);
+                let colors = sorted.map(a => a.shap_attribution >= 0 ? '#10b981' : '#f43f5e');
+                
+                traces.push({
+                    type: 'bar',
+                    x: xVals,
+                    y: yNames,
+                    orientation: 'h',
+                    name: 'TreeSHAP Impact',
+                    marker: { color: colors },
+                    hovertemplate: '<b>%{y}</b><br>SHAP Impact: %{x:+.4f} probability<extra></extra>'
+                });
+            } else if (method === 'ablation') {
+                let sorted = [...attrs].sort((a, b) => a.ablation_attribution - b.ablation_attribution);
+                let yNames = sorted.map(a => a.name);
+                let xVals = sorted.map(a => a.ablation_attribution);
+                let colors = sorted.map(a => a.ablation_attribution >= 0 ? '#3b82f6' : '#a855f7');
+                
+                traces.push({
+                    type: 'bar',
+                    x: xVals,
+                    y: yNames,
+                    orientation: 'h',
+                    name: 'Ablation Impact',
+                    marker: { color: colors },
+                    hovertemplate: '<b>%{y}</b><br>Ablation Impact: %{x:+.4f} probability<extra></extra>'
+                });
+            } else if (method === 'comparison' && currentCellExplanation.has_shap) {
+                let sorted = [...attrs].sort((a, b) => {
+                    let maxA = Math.max(Math.abs(a.shap_attribution), Math.abs(a.ablation_attribution));
+                    let maxB = Math.max(Math.abs(b.shap_attribution), Math.abs(b.ablation_attribution));
+                    return a.shap_attribution - b.shap_attribution;
+                });
+                
+                let yNames = sorted.map(a => a.name);
+                let shapVals = sorted.map(a => a.shap_attribution);
+                let ablatVals = sorted.map(a => a.ablation_attribution);
+                
+                traces.push({
+                    type: 'bar',
+                    x: shapVals,
+                    y: yNames,
+                    orientation: 'h',
+                    name: 'TreeSHAP Value',
+                    marker: { color: '#10b981' },
+                    hovertemplate: '<b>%{y}</b><br>SHAP: %{x:+.4f}<extra></extra>'
+                });
+                
+                traces.push({
+                    type: 'bar',
+                    x: ablatVals,
+                    y: yNames,
+                    orientation: 'h',
+                    name: 'Ablation Value',
+                    marker: { color: '#3b82f6' },
+                    hovertemplate: '<b>%{y}</b><br>Ablation: %{x:+.4f}<extra></extra>'
+                });
+            }
+            
+            let layout = {
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                height: 580,
+                margin: { l: 120, r: 20, t: 10, b: 40 },
+                barmode: 'group',
+                xaxis: {
+                    title: 'Probability Contribution Impact',
+                    gridcolor: '#1f2d47',
+                    zerolinecolor: '#3b82f6',
+                    zerolinewidth: 2,
+                    tickfont: { color: '#9ca3af' },
+                    titlefont: { color: '#9ca3af', size: 12 }
+                },
+                yaxis: {
+                    tickmode: 'linear',
+                    dtick: 1,
+                    tickfont: { color: '#f3f4f6', size: 10 },
+                    automargin: true
+                },
+                legend: {
+                    font: { color: '#9ca3af', size: 10 },
+                    orientation: 'h',
+                    y: 1.1,
+                    x: 0.5,
+                    xanchor: 'center'
+                },
+                hoverlabel: { bgcolor: '#151d30', font: { color: '#f3f4f6' } }
+            };
+            
+            Plotly.newPlot('attribution-chart', traces, layout, { responsive: true, displayModeBar: false });
+        }
+
+        function plotCalciumTrace(trace) {
+            let fTrace = {
+                x: trace.time,
+                y: trace.f,
+                name: 'Raw F',
+                type: 'scatter',
+                line: { color: '#f43f5e', width: 1 },
+                opacity: 0.6
+            };
+            
+            let fneuTrace = {
+                x: trace.time,
+                y: trace.fneu,
+                name: 'Neuropil Fneu',
+                type: 'scatter',
+                line: { color: '#a855f7', width: 1 },
+                opacity: 0.5
+            };
+            
+            let fcorrTrace = {
+                x: trace.time,
+                y: trace.fcorr,
+                name: 'Corrected F_corr',
+                type: 'scatter',
+                line: { color: '#3b82f6', width: 1.8 }
+            };
+            
+            let spksTrace = {
+                x: trace.time,
+                y: trace.spks,
+                name: 'Deconvolved Spikes',
+                type: 'scatter',
+                yaxis: 'y2',
+                fill: 'tozeroy',
+                line: { color: '#10b981', width: 1 },
+                opacity: 0.7
+            };
+            
+            let layout = {
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                margin: { l: 50, r: 50, t: 20, b: 40 },
+                showlegend: true,
+                legend: {
+                    orientation: 'h',
+                    y: 1.15,
+                    x: 0.5,
+                    xanchor: 'center',
+                    font: { color: '#9ca3af', size: 10 }
+                },
+                xaxis: {
+                    title: 'Time (Frames)',
+                    gridcolor: '#1f2d47',
+                    tickfont: { color: '#9ca3af' },
+                    titlefont: { color: '#9ca3af', size: 12 }
+                },
+                yaxis: {
+                    title: 'Fluorescence Intensity',
+                    gridcolor: '#1f2d47',
+                    tickfont: { color: '#9ca3af' },
+                    titlefont: { color: '#9ca3af', size: 12 }
+                },
+                yaxis2: {
+                    title: 'Deconvolved Activity (spks)',
+                    overlaying: 'y',
+                    side: 'right',
+                    showgrid: false,
+                    tickfont: { color: '#10b981' },
+                    titlefont: { color: '#10b981', size: 12 }
+                },
+                hovermode: 'x unified',
+                hoverlabel: { bgcolor: '#151d30', font: { color: '#f3f4f6' } }
+            };
+            
+            Plotly.newPlot('trace-plot', [fTrace, fneuTrace, fcorrTrace, spksTrace], layout, { responsive: true });
+        }
+
+        function drawSpatialROI(roi) {
+            let container = document.getElementById('roi-spatial-plot');
+            container.innerHTML = '';
+            
+            let points = roi.points;
+            let bbox = roi.bbox;
+            
+            if (points.length === 0) {
+                container.innerHTML = '<span class="text-xs text-gray-500">No pixel mask data</span>';
+                return;
+            }
+            
+            let canvas = document.createElement('canvas');
+            canvas.className = "w-full h-full max-w-xs max-h-xs object-contain";
+            canvas.width = bbox.xmax - bbox.xmin;
+            canvas.height = bbox.ymax - bbox.ymin;
+            
+            let ctx = canvas.getContext('2d');
+            
+            ctx.fillStyle = '#0b0f19';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            ctx.strokeStyle = '#151d30';
+            ctx.lineWidth = 1;
+            for (let i = 0; i < canvas.width; i += 10) {
+                ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height); ctx.stroke();
+            }
+            for (let i = 0; i < canvas.height; i += 10) {
+                ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(canvas.width, i); ctx.stroke();
+            }
+            
+            ctx.fillStyle = 'rgba(59, 130, 246, 0.7)';
+            points.forEach(pt => {
+                let rx = pt[0] - bbox.xmin;
+                let ry = pt[1] - bbox.ymin;
+                ctx.fillRect(rx, ry, 1.2, 1.2);
+            });
+            
+            ctx.strokeStyle = 'rgba(59, 130, 246, 0.3)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(2, 2, canvas.width - 4, canvas.height - 4);
+            
+            container.appendChild(canvas);
+        }
+
+        function renderFeaturesTable(attrs) {
+            let body = document.getElementById('features-table-body');
+            body.innerHTML = '';
+            
+            let sorted = [...attrs].sort((a, b) => {
+                let maxA = Math.max(
+                    Math.abs(a.ablation_attribution),
+                    a.shap_attribution !== null ? Math.abs(a.shap_attribution) : 0
+                );
+                let maxB = Math.max(
+                    Math.abs(b.ablation_attribution),
+                    b.shap_attribution !== null ? Math.abs(b.shap_attribution) : 0
+                );
+                return maxB - maxA;
+            });
+            
+            sorted.forEach(a => {
+                let row = document.createElement('tr');
+                row.className = "hover:bg-brand-cardBg/30 transition duration-150";
+                
+                let shapText = 'N/A';
+                let shapColorClass = 'text-gray-600 italic';
+                if (a.shap_attribution !== null) {
+                    let sign = a.shap_attribution > 0 ? '+' : '';
+                    shapText = `${sign}${a.shap_attribution.toFixed(4)}`;
+                    if (Math.abs(a.shap_attribution) < 0.0001) shapText = '0.0000';
+                    shapColorClass = a.shap_attribution > 0.005 ? 'text-emerald-400 font-bold' : (a.shap_attribution < -0.005 ? 'text-rose-400 font-bold' : 'text-gray-500');
+                }
+                
+                let ablatSign = a.ablation_attribution > 0 ? '+' : '';
+                let ablatText = `${ablatSign}${a.ablation_attribution.toFixed(4)}`;
+                if (Math.abs(a.ablation_attribution) < 0.0001) ablatText = '0.0000';
+                let ablatColorClass = a.ablation_attribution > 0.005 ? 'text-blue-400 font-bold' : (a.ablation_attribution < -0.005 ? 'text-purple-400 font-bold' : 'text-gray-500');
+                
+                row.innerHTML = `
+                    <td class="px-4 py-3 font-semibold text-gray-200">${a.name}</td>
+                    <td class="px-4 py-3 text-right ${shapColorClass}">${shapText}</td>
+                    <td class="px-4 py-3 text-right ${ablatColorClass}">${ablatText}</td>
+                    <td class="px-4 py-3 text-right text-gray-300 font-mono">${formatNumber(a.value)}</td>
+                    <td class="px-4 py-3 text-right text-gray-400 font-mono">${formatNumber(a.mean_dataset)}</td>
+                    <td class="px-4 py-3 text-right text-emerald-500/80 font-mono">${formatNumber(a.mean_cells)}</td>
+                    <td class="px-4 py-3 text-right text-rose-500/80 font-mono">${formatNumber(a.mean_noncells)}</td>
+                    <td class="px-4 py-3 text-xs text-gray-400 max-w-[280px]">${a.desc}</td>
+                `;
+                
+                body.appendChild(row);
+            });
+        }
+
+        function formatNumber(val) {
+            if (val === undefined || isNaN(val)) return '-';
+            if (Math.abs(val) < 0.001 && val !== 0) return val.toExponential(2);
+            if (val % 1 !== 0) return val.toFixed(3);
+            return val.toLocaleString();
+        }
+
+        let categoryAnalysisData = null;
+
+        function fetchCategoryAnalysis() {
+            if (!sessionInfo || !sessionInfo.loaded) return;
+            
+            fetch(`/api/category_analysis?threshold=${activeThreshold}`)
+                .then(response => {
+                    if (!response.ok) throw new Error("Server error fetching category analysis");
+                    return response.json();
+                })
+                .then(data => {
+                    categoryAnalysisData = data;
+                    updateCategoryAnalysisUI();
+                })
+                .catch(err => {
+                    console.error("Error fetching category analysis:", err);
+                });
+        }
+
+        function updateCategoryAnalysisUI() {
+            let container = document.getElementById('category-feature-impact');
+            if (!container) return;
+            
+            if (!sessionInfo || !sessionInfo.loaded) {
+                container.innerHTML = '<span class="text-gray-500 italic">No session loaded.</span>';
+                return;
+            }
+            
+            if (!activeCategory) {
+                container.innerHTML = '<span class="text-gray-500 italic">Select a category above (e.g. False Positives) to analyze its distinct feature profile...</span>';
+                return;
+            }
+            
+            let catKey = '';
+            if (activeCategory === 'true_positives') catKey = 'TP';
+            else if (activeCategory === 'false_positives') catKey = 'FP';
+            else if (activeCategory === 'false_negatives') catKey = 'FN';
+            else if (activeCategory === 'true_negatives') catKey = 'TN';
+            else if (activeCategory === 'uncertain') {
+                container.innerHTML = '<span class="text-gray-400 font-semibold">Uncertain category:</span> <span class="text-gray-400">ROIs with AI Confidence between 15% and 85%. No single feature profile determines uncertainty.</span>';
+                return;
+            }
+            
+            if (!categoryAnalysisData || !categoryAnalysisData[catKey]) {
+                container.innerHTML = '<span class="text-gray-500 italic">No analysis data available.</span>';
+                return;
+            }
+            
+            let features = categoryAnalysisData[catKey];
+            if (features.length === 0) {
+                container.innerHTML = '<span class="text-gray-500 italic">No cells in this category for analysis.</span>';
+                return;
+            }
+            
+            // Separate into positive z_score (high) and negative z_score (low)
+            let highFeatures = features.filter(f => f.z_score > 0.15).slice(0, 3);
+            let lowFeatures = features.filter(f => f.z_score < -0.15).slice(0, 3);
+            
+            // Format category name for display
+            let catNameFriendly = catKey === 'TP' ? 'True Positives' :
+                                  catKey === 'FP' ? 'False Positives' :
+                                  catKey === 'FN' ? 'False Negatives' : 'True Negatives';
+                                  
+            let badgeClass = catKey === 'TP' ? 'text-emerald-400' :
+                             catKey === 'FP' ? 'text-rose-400' :
+                             catKey === 'FN' ? 'text-amber-400' : 'text-gray-400';
+                             
+            let html = `<div>
+                <div class="font-bold mb-1.5 flex items-center justify-between">
+                    <span class="${badgeClass}">${catNameFriendly} Profile</span>
+                    <span class="text-[10px] text-gray-500 font-mono">Deviations vs Session Avg</span>
+                </div>`;
+                
+            if (highFeatures.length === 0 && lowFeatures.length === 0) {
+                html += `<div class="text-gray-400 italic">Features are close to the dataset average.</div>`;
+            } else {
+                if (highFeatures.length > 0) {
+                    html += `<div class="mb-1.5">
+                        <div class="text-emerald-400/90 font-semibold text-[10px] uppercase tracking-wider mb-0.5">Unusually High / Contributing:</div>
+                        <div class="space-y-1 pl-1">`;
+                    highFeatures.forEach(f => {
+                        html += `<div class="flex justify-between items-center text-gray-300">
+                            <span>• <code class="text-blue-300 font-mono text-[11px]">${f.feature}</code></span>
+                            <span class="font-semibold text-emerald-400 font-mono">+${f.z_score.toFixed(2)} σ</span>
+                        </div>`;
+                    });
+                    html += `</div></div>`;
+                }
+                
+                if (lowFeatures.length > 0) {
+                    html += `<div>
+                        <div class="text-rose-400/90 font-semibold text-[10px] uppercase tracking-wider mb-0.5">Unusually Low / Absent:</div>
+                        <div class="space-y-1 pl-1">`;
+                    lowFeatures.forEach(f => {
+                        html += `<div class="flex justify-between items-center text-gray-300">
+                            <span>• <code class="text-blue-300 font-mono text-[11px]">${f.feature}</code></span>
+                            <span class="font-semibold text-rose-400 font-mono">${f.z_score.toFixed(2)} σ</span>
+                        </div>`;
+                    });
+                    html += `</div></div>`;
+                }
+            }
+            
+            // Add a smart diagnostic description
+            let summaryDesc = "";
+            if (catKey === 'FP') {
+                summaryDesc = "AI classified these as cells due to high morphology/activity scores, but manual curation marked them as artifacts. Check spatial outlines and peak widths.";
+            } else if (catKey === 'FN') {
+                summaryDesc = "AI missed these cells (marked as noise) likely due to lower activity levels or low SNR. Check if threshold tuning or model retraining is required.";
+            } else if (catKey === 'TP') {
+                summaryDesc = "Clear, correct classifications showing high activity, temporal SNR, and typical biological morphology.";
+            }
+            
+            if (summaryDesc) {
+                html += `<div class="pt-2 border-t border-brand-border/30 mt-2 text-[10px] text-gray-400 leading-relaxed">${summaryDesc}</div>`;
+            }
+            
+            html += `</div>`;
+            container.innerHTML = html;
+        }
+
+        function setComparisonROIA(idx) {
+            let inputA = document.getElementById('compare-roi-a');
+            if (inputA) {
+                inputA.value = idx;
+                // Highlight to show success
+                inputA.classList.add('border-blue-500');
+                setTimeout(() => inputA.classList.remove('border-blue-500'), 800);
+            }
+        }
+
+        function compareROIs() {
+            let roiA = parseInt(document.getElementById('compare-roi-a').value);
+            let roiB = parseInt(document.getElementById('compare-roi-b').value);
+            
+            let container = document.getElementById('comparison-results-container');
+            if (!container) return;
+            
+            if (isNaN(roiA) || isNaN(roiB)) {
+                container.innerHTML = '<span class="text-rose-400 font-semibold">Please enter valid integer ROI indices.</span>';
+                return;
+            }
+            
+            container.innerHTML = `
+                <div class="flex items-center justify-center gap-3 py-4">
+                    <div class="h-6 w-6 border-2 border-blue-500/20 border-t-blue-500 rounded-full animate-spin"></div>
+                    <span class="text-xs text-gray-400 font-medium">Comparing ROI ${roiA} and ROI ${roiB}...</span>
+                </div>`;
+                
+            fetch(`/api/compare_cells?cell_a=${roiA}&cell_b=${roiB}`)
+                .then(response => {
+                    if (!response.ok) throw new Error("Server error comparing cells");
+                    return response.json();
+                })
+                .then(data => {
+                    let dist = data.distance_px;
+                    let corrF = data.corr_f;
+                    let corrFcorr = data.corr_fcorr;
+                    let overlapPix = data.intersection_pixels;
+                    let iou = data.iou;
+                    
+                    // Style alerts based on similarity thresholds
+                    let isDuplicate = dist <= 15.0 && (corrF >= 0.7 || corrFcorr >= 0.7) && overlapPix > 0;
+                    
+                    let statusHtml = '';
+                    if (isDuplicate) {
+                        statusHtml = `<span class="px-2 py-0.5 text-[10px] font-bold uppercase rounded bg-rose-500/10 border border-rose-500/30 text-rose-400 animate-pulse">⚠️ Duplicate Candidate</span>`;
+                    } else {
+                        statusHtml = `<span class="px-2 py-0.5 text-[10px] font-bold uppercase rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">✅ Distinct ROIs</span>`;
+                    }
+                    
+                    container.innerHTML = `
+                        <div class="space-y-4">
+                            <div class="flex items-center justify-between border-b border-brand-border/40 pb-2">
+                                <span class="font-bold text-sm text-white flex items-center gap-2">
+                                    <i class="fa-solid fa-code-compare text-blue-400"></i> ROI ${roiA} vs ROI ${roiB} Comparison
+                                </span>
+                                ${statusHtml}
+                            </div>
+                            
+                            <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                                <div class="bg-brand-darkBg/60 p-3 rounded-xl border border-brand-border/30 text-center">
+                                    <div class="text-[10px] text-gray-400 uppercase font-semibold mb-1">Centroid Distance</div>
+                                    <div class="text-lg font-bold ${dist <= 15.0 ? 'text-rose-400' : 'text-gray-200'}">${dist.toFixed(1)} px</div>
+                                    <div class="text-[9px] text-gray-500 mt-0.5">${dist <= 15.0 ? 'Close (< 15px)' : 'Far'}</div>
+                                </div>
+                                <div class="bg-brand-darkBg/60 p-3 rounded-xl border border-brand-border/30 text-center">
+                                    <div class="text-[10px] text-gray-400 uppercase font-semibold mb-1">Raw Trace Corr</div>
+                                    <div class="text-lg font-bold ${corrF >= 0.7 ? 'text-rose-400' : 'text-emerald-400'}">${corrF.toFixed(3)}</div>
+                                    <div class="text-[9px] text-gray-500 mt-0.5">${corrF >= 0.7 ? 'High Correlation' : 'Low Correlation'}</div>
+                                </div>
+                                <div class="bg-brand-darkBg/60 p-3 rounded-xl border border-brand-border/30 text-center">
+                                    <div class="text-[10px] text-gray-400 uppercase font-semibold mb-1">Corrected Trace Corr</div>
+                                    <div class="text-lg font-bold ${corrFcorr >= 0.7 ? 'text-rose-400' : 'text-emerald-400'}">${corrFcorr.toFixed(3)}</div>
+                                    <div class="text-[9px] text-gray-500 mt-0.5">${corrFcorr >= 0.7 ? 'High Correlation' : 'Low Correlation'}</div>
+                                </div>
+                                <div class="bg-brand-darkBg/60 p-3 rounded-xl border border-brand-border/30 text-center">
+                                    <div class="text-[10px] text-gray-400 uppercase font-semibold mb-1">Pixel Overlap</div>
+                                    <div class="text-lg font-bold ${overlapPix > 0 ? 'text-rose-400' : 'text-gray-200'}">${overlapPix} px</div>
+                                    <div class="text-[9px] text-gray-500 mt-0.5">IoU: ${iou.toFixed(3)}</div>
+                                </div>
+                            </div>
+                            
+                            <p class="text-[11px] text-gray-400 leading-normal bg-brand-darkBg/30 p-2.5 rounded-lg border border-brand-border/20">
+                                <strong>Diagnostic:</strong> ${isDuplicate ? 
+                                    `These ROIs are within 15 pixels, share overlapping pixels, and have a trace correlation &ge; 0.70. Under active duplicate suppression, only the one with the higher probability is kept.` : 
+                                    `These ROIs do not meet the duplication criteria (either far apart, non-overlapping, or trace correlation &lt; 0.70) and will both be classified independently.`}
+                            </p>
+                        </div>`;
+                })
+                .catch(err => {
+                    container.innerHTML = `<span class="text-rose-400 font-semibold">Error comparing cells: ${err.message}</span>`;
+                });
+        }
+    </script>
+</body>
+</html>
+"""
+
+# ==========================================
+# 6. APPLICATION STARTPOINT
+# ==========================================
+
+def run_server(port=5000):
+    # Determine default model to load
+    dir_path = Path("/home/tomer/Documents/suite2p-iscell-prediction")
+    
+    # Pre-load best LGB if available, else MLP
+    models = [f.name for f in dir_path.glob("*.pkl") if "scaler" not in f.name]
+    
+    default_model = None
+    if "suite2p_best_lgb.pkl" in models:
+        default_model = "suite2p_best_lgb.pkl"
+    elif "suite2p_standard_mlp.pkl" in models:
+        default_model = "suite2p_standard_mlp.pkl"
+    elif len(models) > 0:
+        default_model = models[0]
+        
+    if default_model:
+        try:
+            state.load_model(default_model)
+        except Exception as e:
+            print(f"Error pre-loading default model: {e}")
+            
+    # Auto-load first suggested session if available if none specified
+    if not state.session_path:
+        suggested_sessions = [
+            "/mnt/other_ubunthu/mnt/data/1-ordered/Stav1",
+            "/mnt/other_ubunthu/mnt/data/4-ordered/Stav4",
+            "/mnt/other_ubunthu/mnt/data/6-ordered/Stav6"
+        ]
+        for s in suggested_sessions:
+            if os.path.exists(s):
+                try:
+                    state.load_session(s)
+                    break
+                except Exception as e:
+                    print(f"Error loading initial session {s}: {e}")
+                
+    server = HTTPServer(('localhost', port), DashHandler)
+    print(f"\n==================================================================")
+    print(f"  Suite2p AI Decision Explainer Server is running!")
+    print(f"  --> Local Address: http://localhost:{port}")
+    print(f"==================================================================\n")
+    
+    # Automatically open in default web browser
+    webbrowser.open(f"http://localhost:{port}")
+    
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nStopping server...")
+        server.server_close()
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Suite2p Cell Classification Decision Investigation Tool")
+    parser.add_argument('--session', type=str, help="Initial Suite2p session path to load")
+    parser.add_argument('--model', type=str, help="Initial model .pkl path to load")
+    parser.add_argument('--scaler', type=str, help="Initial scaler .pkl path to load")
+    parser.add_argument('--port', type=int, default=5000, help="Port to run server on")
+    args = parser.parse_args()
+    
+    if args.model:
+        state.load_model(args.model, args.scaler)
+        
+    if args.session:
+        state.load_session(args.session)
+        
+    run_server(args.port)
