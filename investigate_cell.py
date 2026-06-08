@@ -753,6 +753,80 @@ class SessionState:
         self.y_probs = self.model.predict_proba(X_proc)[:, 1]
         self.y_preds = (self.y_probs >= 0.5).astype(int)
         
+    def get_batch_explanations(self, indices):
+        if self.X_extracted is None:
+            self.process_all_cells()
+            
+        if len(indices) == 0:
+            return np.zeros((0, self.num_features))
+            
+        X_batch = self.X_extracted[indices]
+        
+        model_type_str = str(type(self.model))
+        has_shap = False
+        shap_values = None
+        
+        if "LGBMClassifier" in model_type_str:
+            try:
+                contribs = self.model.predict(X_batch, pred_contrib=True)
+                shaps = contribs[:, :-1]
+                base_value = contribs[:, -1]
+                
+                margin = base_value + np.sum(shaps, axis=1)
+                prob_full = 1.0 / (1.0 + np.exp(-margin))
+                
+                margin_without = margin[:, np.newaxis] - shaps
+                prob_without = 1.0 / (1.0 + np.exp(-margin_without))
+                
+                shap_values = prob_full[:, np.newaxis] - prob_without
+                has_shap = True
+            except Exception as e:
+                print(f"Error computing batch LGBM TreeSHAP: {e}")
+                
+        elif "XGBClassifier" in model_type_str:
+            try:
+                import xgboost as xgb
+                booster = self.model.get_booster()
+                dmat = xgb.DMatrix(X_batch)
+                contribs = booster.predict(dmat, pred_contribs=True)
+                shaps = contribs[:, :-1]
+                base_value = contribs[:, -1]
+                
+                margin = base_value + np.sum(shaps, axis=1)
+                prob_full = 1.0 / (1.0 + np.exp(-margin))
+                
+                margin_without = margin[:, np.newaxis] - shaps
+                prob_without = 1.0 / (1.0 + np.exp(-margin_without))
+                
+                shap_values = prob_full[:, np.newaxis] - prob_without
+                has_shap = True
+            except Exception as e:
+                print(f"Error computing batch XGBoost TreeSHAP: {e}")
+                
+        elif "CatBoostClassifier" in model_type_str:
+            try:
+                import catboost
+                pool = catboost.Pool(X_batch)
+                contribs = self.model.get_feature_importance(data=pool, type='ShapValues')
+                shaps = contribs[:, :-1]
+                base_value = contribs[:, -1]
+                
+                margin = base_value + np.sum(shaps, axis=1)
+                prob_full = 1.0 / (1.0 + np.exp(-margin))
+                
+                margin_without = margin[:, np.newaxis] - shaps
+                prob_without = 1.0 / (1.0 + np.exp(-margin_without))
+                
+                shap_values = prob_full[:, np.newaxis] - prob_without
+                has_shap = True
+            except Exception as e:
+                print(f"Error computing batch CatBoost TreeSHAP: {e}")
+                
+        if has_shap:
+            return shap_values
+        else:
+            raise ValueError("Failure-mode clustering is only supported for tree-based models (LightGBM, XGBoost, CatBoost) which support TreeSHAP.")
+            
     def get_cell_explanation(self, cell_idx):
         if self.X_extracted is None:
             self.process_all_cells()
@@ -931,6 +1005,34 @@ class SessionState:
 # ==========================================
 # 4. HTTP REQUEST HANDLER
 # ==========================================
+
+def generate_cluster_label(top_features, category):
+    if not top_features:
+        return "Unknown Profile"
+        
+    primary_feature = top_features[0][0]
+    secondary_feature = top_features[1][0] if len(top_features) > 1 else ""
+    
+    spatial_features = {'mrs', 'solidity', 'npix', 'aspect_ratio', 'radius', 'compact', 'skew_spatial', 'number_of_bright_pixels'}
+    trace_features = {'skew_f', 'std_f', 'max_to_mean_f', 'cv_f', 'skew_fcorr', 'std_fcorr', 'q90', 'q95', 'q99', 'range_fcorr', 'snr', 'activity_ratio', 'peak_density'}
+    neuropil_features = {'corr_f_fneu', 'skew_fneu'}
+    index_features = {'roi_idx_norm', 'roi_idx_norm_3bin', 'roi_idx_raw'}
+    
+    label_base = ""
+    if primary_feature in neuropil_features or secondary_feature in neuropil_features:
+        label_base = "Neuropil / Background Contamination"
+    elif primary_feature in index_features:
+        label_base = "Spatial Index Prior Bias"
+    elif primary_feature in spatial_features and secondary_feature in spatial_features:
+        label_base = "Pure Morphological Clone"
+    elif primary_feature in trace_features and secondary_feature in trace_features:
+        label_base = "Transient Activity Bias"
+    elif primary_feature in spatial_features and secondary_feature in trace_features:
+        label_base = "Mixed Morphology & Activity Profile"
+    else:
+        label_base = f"Driven by {primary_feature.replace('_', ' ').title()}"
+        
+    return label_base
 
 state = SessionState()
 
@@ -1134,6 +1236,109 @@ class DashHandler(BaseHTTPRequestHandler):
                     analysis[cat_name] = cat_features
                     
                 self.send_json(analysis)
+            except Exception as e:
+                self.send_error_json(str(e))
+            return
+            
+        elif path == '/api/failure_modes':
+            try:
+                category = params.get('category', ['FP'])[0].upper()
+                threshold = float(params.get('threshold', [0.5])[0])
+                
+                state.process_all_cells()
+                y_true = state.y_true
+                y_probs = state.y_probs
+                y_preds = (y_probs >= threshold).astype(int)
+                
+                if category == 'TP':
+                    indices = np.where((y_preds == 1) & (y_true == 1))[0]
+                elif category == 'FP':
+                    indices = np.where((y_preds == 1) & (y_true == 0))[0]
+                elif category == 'FN':
+                    indices = np.where((y_preds == 0) & (y_true == 1))[0]
+                elif category == 'TN':
+                    indices = np.where((y_preds == 0) & (y_true == 0))[0]
+                else:
+                    raise ValueError(f"Unknown category {category}")
+                    
+                if len(indices) == 0:
+                    self.send_json({'category': category, 'clusters': []})
+                    return
+                    
+                A = state.get_batch_explanations(indices)
+                
+                n_clusters = min(3, len(indices))
+                
+                clusters_data = []
+                if n_clusters > 0:
+                    from sklearn.cluster import KMeans
+                    
+                    kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init='auto')
+                    cluster_labels = kmeans.fit_predict(A)
+                    
+                    tp_indices = np.where((y_preds == 1) & (y_true == 1))[0]
+                    if len(tp_indices) > 0:
+                        tp_means = np.mean(state.X_extracted[tp_indices], axis=0)
+                    else:
+                        tp_means = np.mean(state.X_extracted, axis=0)
+                        
+                    for c in range(n_clusters):
+                        c_mask = (cluster_labels == c)
+                        c_indices = indices[c_mask]
+                        c_attributions = A[c_mask]
+                        c_raw_features = state.X_extracted[c_indices]
+                        
+                        mean_attributions = np.mean(c_attributions, axis=0)
+                        mean_raw = np.mean(c_raw_features, axis=0)
+                        
+                        features_list = []
+                        for f_idx, f_name in enumerate(state.feature_names):
+                            features_list.append({
+                                'name': f_name,
+                                'desc': state.feature_descs.get(f_name, ''),
+                                'mean_attribution': float(mean_attributions[f_idx]),
+                                'mean_raw': float(mean_raw[f_idx]),
+                                'mean_tp': float(tp_means[f_idx]),
+                                'mean_dataset': float(state.ref_means[f_idx])
+                            })
+                            
+                        features_list.sort(key=lambda x: abs(x['mean_attribution']), reverse=True)
+                        
+                        top_features = [(f['name'], f['mean_attribution']) for f in features_list]
+                        
+                        cluster_label = generate_cluster_label(top_features, category)
+                        
+                        c_probs = y_probs[c_indices]
+                        if category in ('FP', 'TP'):
+                            worst_order = np.argsort(c_probs)[::-1][:5]
+                        else:
+                            worst_order = np.argsort(c_probs)[:5]
+                            
+                        worst_cells = []
+                        for w_idx in worst_order:
+                            cell_idx = int(c_indices[w_idx])
+                            worst_cells.append({
+                                'idx': cell_idx,
+                                'prob': float(y_probs[cell_idx]),
+                                'gt': int(y_true[cell_idx])
+                            })
+                            
+                        clusters_data.append({
+                            'cluster_id': c,
+                            'label': cluster_label,
+                            'size': int(np.sum(c_mask)),
+                            'percentage': float(np.sum(c_mask) / len(indices) * 100),
+                            'features': features_list,
+                            'representative_cells': worst_cells
+                        })
+                        
+                clusters_data.sort(key=lambda x: x['size'], reverse=True)
+                
+                self.send_json({
+                    'category': category,
+                    'total_count': len(indices),
+                    'clusters': clusters_data
+                })
             except Exception as e:
                 self.send_error_json(str(e))
             return
@@ -2124,6 +2329,16 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             updateCategoryButtonStyles();
             updateCategoryAnalysisUI();
             loadCell(cells[0]);
+            
+            let fmKey = '';
+            if (cat === 'true_positives') fmKey = 'TP';
+            else if (cat === 'false_positives') fmKey = 'FP';
+            else if (cat === 'false_negatives') fmKey = 'FN';
+            else if (cat === 'true_negatives') fmKey = 'TN';
+            
+            if (fmKey) {
+                openFailureModeModal(fmKey);
+            }
         }
 
         function updateAttributionChart() {
@@ -2477,7 +2692,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             let html = `<div>
                 <div class="font-bold mb-1.5 flex items-center justify-between">
                     <span class="${badgeClass}">${catNameFriendly} Profile</span>
-                    <span class="text-[10px] text-gray-500 font-mono">Deviations vs Session Avg</span>
+                    <button onclick="openFailureModeModal('${catKey}')" class="text-[9px] bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 border border-blue-500/30 px-1.5 py-0.5 rounded transition font-medium flex items-center gap-1">
+                        <i class="fa-solid fa-circle-nodes"></i> Analyze Failure Modes
+                    </button>
                 </div>`;
                 
             if (highFeatures.length === 0 && lowFeatures.length === 0) {
@@ -2621,7 +2838,298 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     container.innerHTML = `<span class="text-rose-400 font-semibold">Error comparing cells: ${err.message}</span>`;
                 });
         }
+
+        // ==========================================
+        // FAILURE MODE CLUSTERING INTERACTION
+        // ==========================================
+        let failureModeData = null;
+        let activeClusterId = 0;
+
+        function openFailureModeModal(category) {
+            let modal = document.getElementById('failure-mode-modal');
+            let title = document.getElementById('fm-modal-title');
+            
+            let catName = category === 'TP' ? 'True Positives' :
+                          category === 'FP' ? 'False Positives' :
+                          category === 'FN' ? 'False Negatives' : 'True Negatives';
+            
+            title.textContent = `${catName} Failure Mode Analysis`;
+            modal.classList.remove('hidden');
+            
+            document.getElementById('fm-cluster-tabs').innerHTML = '<div class="text-gray-500 italic text-xs py-4 text-center"><i class="fa-solid fa-spinner fa-spin text-blue-500 text-lg mb-2 block"></i>clustering data...</div>';
+            document.getElementById('fm-cluster-name').textContent = 'Analyzing cohort...';
+            document.getElementById('fm-cluster-desc').textContent = 'Running K-Means clustering on SHAP vectors...';
+            document.getElementById('fm-cluster-chart').innerHTML = '<span class="text-gray-500 italic text-xs">Computing feature attributions...</span>';
+            document.getElementById('fm-cluster-cells').innerHTML = '';
+            document.getElementById('fm-comparison-table-body').innerHTML = '';
+            
+            fetch(`/api/failure_modes?category=${category}&threshold=${activeThreshold}`)
+                .then(response => {
+                    if (!response.ok) throw new Error("Backend error or non-tree model loaded");
+                    return response.json();
+                })
+                .then(data => {
+                    failureModeData = data;
+                    if (!data.clusters || data.clusters.length === 0) {
+                        document.getElementById('fm-cluster-tabs').innerHTML = '<span class="text-gray-500 italic text-xs">No cells in this category.</span>';
+                        document.getElementById('fm-cluster-name').textContent = 'No failure modes detected';
+                        document.getElementById('fm-cluster-desc').textContent = 'This cohort has no samples under the current threshold.';
+                        document.getElementById('fm-cluster-chart').innerHTML = '';
+                        return;
+                    }
+                    
+                    renderFailureModeSidebar();
+                    selectCluster(0);
+                })
+                .catch(err => {
+                    console.error("Error fetching failure modes:", err);
+                    document.getElementById('fm-cluster-tabs').innerHTML = `<span class="text-rose-400 italic text-xs">Error: ${err.message}</span>`;
+                    document.getElementById('fm-cluster-name').textContent = 'Analysis Unavailable';
+                    document.getElementById('fm-cluster-desc').textContent = 'This analysis is only supported for tree-based models (like LightGBM) that natively output TreeSHAP values. MLP models do not support fast batch SHAP.';
+                    document.getElementById('fm-cluster-chart').innerHTML = '';
+                });
+        }
+
+        function closeFailureModeModal() {
+            document.getElementById('failure-mode-modal').classList.add('hidden');
+        }
+
+        function renderFailureModeSidebar() {
+            let container = document.getElementById('fm-cluster-tabs');
+            container.innerHTML = '';
+            
+            failureModeData.clusters.forEach((c, idx) => {
+                let tab = document.createElement('button');
+                tab.onclick = () => selectCluster(idx);
+                tab.id = `fm-tab-${idx}`;
+                tab.className = `w-full text-left p-3.5 rounded-xl border flex flex-col gap-1 transition duration-200`;
+                
+                if (idx === 0) {
+                    tab.classList.add('bg-blue-600/10', 'border-blue-500/30', 'text-blue-400');
+                } else {
+                    tab.className += ' bg-brand-darkBg/50 border-brand-border/40 hover:border-brand-border text-gray-300';
+                }
+                
+                let categoryLabel = failureModeData.category;
+                let outcomeWord = categoryLabel === 'FP' ? 'False Alarms' : categoryLabel === 'FN' ? 'Missed Cells' : 'Cells';
+                
+                tab.innerHTML = `
+                    <div class="font-semibold text-xs flex justify-between items-center w-full">
+                        <span class="truncate max-w-[150px]">${c.label}</span>
+                        <span class="px-2 py-0.5 rounded bg-brand-border/60 text-[9px] text-gray-400 font-mono">${c.percentage.toFixed(0)}%</span>
+                    </div>
+                    <div class="text-[10px] text-gray-400">${c.size} ${outcomeWord}</div>
+                `;
+                container.appendChild(tab);
+            });
+        }
+
+        function selectCluster(clusterIdx) {
+            activeClusterId = clusterIdx;
+            
+            let tabsContainer = document.getElementById('fm-cluster-tabs');
+            let tabs = tabsContainer.getElementsByTagName('button');
+            for (let i = 0; i < tabs.length; i++) {
+                if (i === clusterIdx) {
+                    tabs[i].className = "w-full text-left p-3.5 rounded-xl border flex flex-col gap-1 transition duration-200 bg-blue-600/10 border-blue-500/30 text-blue-400";
+                } else {
+                    tabs[i].className = "w-full text-left p-3.5 rounded-xl border flex flex-col gap-1 transition duration-200 bg-brand-darkBg/50 border-brand-border/40 hover:border-brand-border text-gray-300";
+                }
+            }
+            
+            let c = failureModeData.clusters[clusterIdx];
+            let categoryLabel = failureModeData.category;
+            
+            document.getElementById('fm-cluster-badge').textContent = `FAILURE MODE ${clusterIdx + 1} • ${c.percentage.toFixed(0)}% OF COHORT`;
+            document.getElementById('fm-cluster-name').textContent = c.label;
+            
+            let descText = "";
+            let outcome = categoryLabel === 'FP' ? 'False Positive (False Alarm)' :
+                          categoryLabel === 'FN' ? 'False Negative (Missed Cell)' : 'Correct';
+            
+            if (c.label.includes("Neuropil")) {
+                descText = `This group of ${c.size} cells represents a ${outcome} mode characterized by high neuropil background correlation. The model was misled by background fluorescence transients, mistaking them for genuine calcium spikes in the cell body. **Actionable fix:** Consider adjusting the neuropil subtraction coefficient or trace filters.`;
+            } else if (c.label.includes("Index")) {
+                descText = `This group of ${c.size} cells is dominated by their ROI index prior. The model learned to over-weight cells at the start or end of the Suite2p list due to session-level sorting biases. **Actionable fix:** Consider dropping the index prior or training on random index orders to remove index bias.`;
+            } else if (c.label.includes("Morphological")) {
+                descText = `This group of ${c.size} cells are "morphological clones". They have perfect roundness, solidity, and size, but almost zero actual calcium activity. The model was tricked purely by static image properties. **Actionable fix:** Consider reducing the weights of shape features or restricting tree depth to avoid pure-morphology decisions.`;
+            } else if (c.label.includes("Transient")) {
+                descText = `This group of ${c.size} cells is driven by transient activity/skewness metrics. The traces show high variance or peak density, but the shape or morphology is atypical. **Actionable fix:** Check if these are active dendrites or scan artifacts rather than healthy cell bodies.`;
+            } else {
+                descText = `This group of ${c.size} cells shows a mixed error profile driven primarily by feature '${c.features[0].name.replace('_', ' ')}'. It represents a distinct decision boundary subspace where the model's feature weights align in this specific configuration.`;
+            }
+            document.getElementById('fm-cluster-desc').textContent = descText;
+            
+            let cellsContainer = document.getElementById('fm-cluster-cells');
+            cellsContainer.innerHTML = '';
+            
+            c.representative_cells.forEach(cell => {
+                let cellBtn = document.createElement('button');
+                cellBtn.onclick = () => {
+                    closeFailureModeModal();
+                    loadCell(cell.idx);
+                };
+                cellBtn.className = "w-full flex justify-between items-center px-3 py-2 rounded-lg bg-brand-darkBg/60 border border-brand-border/40 hover:bg-brand-border/20 text-gray-300 hover:text-white transition text-xs";
+                cellBtn.innerHTML = `
+                    <span class="font-mono">ROI ${cell.idx}</span>
+                    <span class="font-semibold text-blue-400 font-mono">${(cell.prob * 100).toFixed(0)}% AI Conf</span>
+                `;
+                cellsContainer.appendChild(cellBtn);
+            });
+            
+            let tableBody = document.getElementById('fm-comparison-table-body');
+            tableBody.innerHTML = '';
+            c.features.slice(0, 5).forEach(f => {
+                let row = document.createElement('tr');
+                row.className = "border-b border-brand-border/10 hover:bg-brand-darkBg/20 text-xs";
+                row.innerHTML = `
+                    <td class="py-2 font-mono text-gray-200 font-medium">${f.name}</td>
+                    <td class="py-2 text-gray-400 max-w-[250px] truncate" title="${f.desc}">${f.desc}</td>
+                    <td class="py-2 text-right font-mono font-semibold text-emerald-400">${formatNumber(f.mean_raw)}</td>
+                    <td class="py-2 text-right font-mono text-gray-300">${formatNumber(f.mean_tp)}</td>
+                    <td class="py-2 text-right font-mono text-gray-400">${formatNumber(f.mean_dataset)}</td>
+                `;
+                tableBody.appendChild(row);
+            });
+            
+            renderPlotlyClusterChart(c.features.slice(0, 8));
+        }
+
+        function renderPlotlyClusterChart(features) {
+            let chartDiv = document.getElementById('fm-cluster-chart');
+            chartDiv.innerHTML = '';
+            
+            let names = features.map(f => f.name).reverse();
+            let values = features.map(f => f.mean_attribution).reverse();
+            
+            let colors = values.map(v => v >= 0 ? '#10b981' : '#f43f5e');
+            
+            let data = [{
+                type: 'bar',
+                x: values,
+                y: names,
+                orientation: 'h',
+                marker: {
+                    color: colors,
+                    line: { width: 0 }
+                },
+                text: values.map(v => (v >= 0 ? '+' : '') + v.toFixed(3)),
+                textposition: 'inside',
+                insidetextanchor: 'middle',
+                insidetextfont: {
+                    family: 'Outfit, sans-serif',
+                    size: 10,
+                    color: '#ffffff'
+                }
+            }];
+            
+            let layout = {
+                autosize: true,
+                margin: { l: 150, r: 20, t: 15, b: 35 },
+                xaxis: {
+                    gridcolor: '#1f2d47',
+                    zerolinecolor: '#3b82f6',
+                    tickfont: { family: 'Outfit, sans-serif', size: 10, color: '#9ca3af' },
+                    title: { text: 'AI Confidence Probability Shift', font: { family: 'Outfit, sans-serif', size: 10, color: '#9ca3af' } }
+                },
+                yaxis: {
+                    tickfont: { family: 'Outfit, sans-serif', size: 10, color: '#d1d5db' },
+                    gridcolor: 'transparent'
+                },
+                paper_bgcolor: 'transparent',
+                plot_bgcolor: 'transparent',
+                showlegend: false,
+                hovermode: false
+            };
+            
+            let config = { responsive: true, displayModeBar: false };
+            Plotly.newPlot(chartDiv, data, layout, config);
+        }
     </script>
+
+    <!-- FAILURE MODE MODAL -->
+    <div id="failure-mode-modal" class="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-4 sm:p-6 md:p-8 hidden">
+        <div class="bg-brand-cardBg border border-brand-border/80 w-full max-w-5xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <!-- Modal Header -->
+            <div class="px-6 py-4 border-b border-brand-border/60 flex justify-between items-center bg-brand-darkBg/50">
+                <div>
+                    <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                        <i class="fa-solid fa-circle-nodes text-blue-500"></i>
+                        <span id="fm-modal-title">Failure Mode Analysis</span>
+                    </h2>
+                    <p class="text-xs text-gray-400 mt-0.5">SHAP-based clustering breakdown of model decisions</p>
+                </div>
+                <button onclick="closeFailureModeModal()" class="text-gray-400 hover:text-white text-xl p-1.5 hover:bg-brand-border/40 rounded-lg transition duration-200">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            
+            <!-- Modal Body -->
+            <div class="flex-1 overflow-y-auto p-6 space-y-6 flex flex-col md:flex-row gap-6">
+                <!-- Left Sidebar: Cluster Selectors & Worst Offenders -->
+                <div class="w-full md:w-1/3 space-y-4 flex flex-col">
+                    <div class="space-y-2">
+                        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Failure Modes Found:</div>
+                        <div id="fm-cluster-tabs" class="space-y-2 max-h-[30vh] overflow-y-auto">
+                            <!-- Dynamically filled -->
+                        </div>
+                    </div>
+                    <div class="space-y-2 border-t border-brand-border/40 pt-4">
+                        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Worst Offending Cells:</div>
+                        <div id="fm-cluster-cells" class="space-y-2">
+                            <!-- Dynamically filled -->
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Right Content Panel -->
+                <div class="flex-1 space-y-6 flex flex-col">
+                    <!-- Cluster Description / Diagnostic -->
+                    <div class="bg-brand-darkBg/40 border border-brand-border/30 p-4 rounded-xl space-y-2">
+                        <div class="text-[10px] uppercase font-semibold tracking-wider text-blue-400" id="fm-cluster-badge">Failure Mode Profile</div>
+                        <h3 class="text-sm font-bold text-gray-100" id="fm-cluster-name">-</h3>
+                        <p class="text-xs text-gray-300 leading-relaxed" id="fm-cluster-desc">-</p>
+                    </div>
+                    
+                    <!-- Plotly Chart Container -->
+                    <div class="space-y-2">
+                        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Feature Impact Fingerprint (SHAP values):</div>
+                        <div id="fm-cluster-chart" class="w-full h-[280px] bg-brand-darkBg/50 rounded-xl border border-brand-border/30 overflow-hidden">
+                            <!-- Let Plotly draw directly without centering constraints -->
+                        </div>
+                    </div>
+                    
+                    <!-- Physical Feature Comparison Table (Full Width) -->
+                    <div class="bg-brand-darkBg/30 p-4 rounded-xl border border-brand-border/20 space-y-3">
+                        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Feature Physical Comparison:</div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-xs text-left text-gray-300">
+                                <thead>
+                                    <tr class="border-b border-brand-border/30 text-gray-400 font-semibold">
+                                        <th class="py-2">Feature Name</th>
+                                        <th class="py-2">Description</th>
+                                        <th class="py-2 text-right">Cluster Mean</th>
+                                        <th class="py-2 text-right">True Positive Mean</th>
+                                        <th class="py-2 text-right">Dataset Mean</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="fm-comparison-table-body">
+                                    <!-- Dynamically filled -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Modal Footer -->
+            <div class="px-6 py-4 border-t border-brand-border/40 bg-brand-darkBg/30 flex justify-end">
+                <button onclick="closeFailureModeModal()" class="px-4 py-2 bg-brand-border hover:bg-brand-border/80 border border-brand-border/60 rounded-xl text-xs text-gray-200 transition duration-200 font-medium">
+                    Close Analysis
+                </button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
 """
