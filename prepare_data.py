@@ -8,14 +8,14 @@ from joblib import Parallel, delayed
 
 # Ensure workspace root is in python path
 sys.path.append(str(Path(__file__).parent.resolve()))
-from apply_AI import extract_features, FEATURE_NAMES_24
+from apply_AI import extract_features, FEATURE_NAMES_25
 
 def process_single_session(session_path, group_id, label_options, cache_dir):
     try:
         # Define cache path
         path_str = str(session_path.resolve())
         path_hash = hashlib.md5(path_str.encode('utf-8')).hexdigest()
-        cache_file = cache_dir / f"session_{path_hash}_24features.npz"
+        cache_file = cache_dir / f"session_{path_hash}_25features.npz"
         
         # Load from cache if it exists
         if cache_file.exists():
@@ -44,7 +44,7 @@ def process_single_session(session_path, group_id, label_options, cache_dir):
         y = iscell[:, 0].astype(int)
         
         # Extract features using apply_AI's pipeline (ensures perfect alignment)
-        X = extract_features(F, Fneu, stat, FEATURE_NAMES_24)
+        X = extract_features(F, Fneu, stat, FEATURE_NAMES_25)
         
         # Save to cache
         try:

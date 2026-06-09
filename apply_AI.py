@@ -10,15 +10,15 @@ from scipy.signal import find_peaks, peak_widths
 
 warnings.filterwarnings("ignore")
 
-FEATURE_NAMES_24 = [
-    'number_of_bright_pixels', 'solidity', 'mrs', 'roi_idx_norm',
+FEATURE_NAMES_25 = [
+    'number_of_bright_pixels', 'bright_pixels_ratio', 'solidity', 'mrs', 'roi_idx_norm',
     'skew_f', 'std_f', 'max_to_mean_f', 'cv_f', 'skew_fneu', 'corr_f_fneu',
     'skew_fcorr', 'std_fcorr', 'q10', 'q25', 'q50', 'q75', 'q90', 'q95', 'q99',
     'avg_asym', 'max_asym', 'max_width', 'range_fcorr', 'range_f'
 ]
 
-FEATURE_NAMES_26 = [
-    'number_of_bright_pixels', 'solidity', 'mrs',
+FEATURE_NAMES_27 = [
+    'number_of_bright_pixels', 'bright_pixels_ratio', 'solidity', 'mrs',
     'skew_f', 'std_f', 'max_to_mean_f', 'cv_f', 'skew_fneu', 'corr_f_fneu',
     'skew_fcorr', 'std_fcorr', 'q10', 'q25', 'q50', 'q75', 'q90', 'q95', 'q99',
     'avg_asym', 'max_asym', 'max_width', 'range_fcorr', 'range_f',
@@ -82,6 +82,13 @@ def extract_features(F, Fneu, stat, num_features_or_names):
                         max_lam = np.max(lam) if len(lam) > 0 else 0.0
                         bright_pix = float(np.sum(lam > 0.1 * max_lam)) if max_lam > 0 else 0.0
                     row.append(bright_pix)
+                elif name == 'bright_pixels_ratio':
+                    if bright_pix is None:
+                        lam = s.get('lam', np.zeros(0))
+                        max_lam = np.max(lam) if len(lam) > 0 else 0.0
+                        bright_pix = float(np.sum(lam > 0.1 * max_lam)) if max_lam > 0 else 0.0
+                    npix = float(s.get('npix', 0))
+                    row.append(bright_pix / npix if npix > 0 else 0.0)
                     
                 # Index features
                 elif name == 'roi_idx_norm':
@@ -178,14 +185,17 @@ def extract_features(F, Fneu, stat, num_features_or_names):
         solidity = s.get('solidity', 1.0)
         mrs = s.get('mrs', 0)
         
-        if num_features == 24:
-            # Spatial (4) - Continuous Index
-            spatial = [bright_pix, solidity, mrs, i / n_cells if n_cells > 0 else 0.0]
-        elif num_features == 26:
-            # Spatial (3) - No Index
-            spatial = [bright_pix, solidity, mrs]
+        npix = float(s.get('npix', 0))
+        bright_ratio = bright_pix / npix if npix > 0 else 0.0
+        
+        if num_features == 25:
+            # Spatial (5) - Continuous Index
+            spatial = [bright_pix, bright_ratio, solidity, mrs, i / n_cells if n_cells > 0 else 0.0]
+        elif num_features == 27:
+            # Spatial (4) - No Index
+            spatial = [bright_pix, bright_ratio, solidity, mrs]
         else:
-            raise ValueError(f"Unsupported number of features: {num_features}. Model must expect 24 or 26 features.")
+            raise ValueError(f"Unsupported number of features: {num_features}. Model must expect 25 or 27 features.")
             
         # Trace Stats (8)
         mean_f_val = np.mean(f)
@@ -343,8 +353,8 @@ def apply_active_learning(session_path, model_spec='regular'):
         num_features = model.n_features_
     else:
         # Default fallback to regular model feature count
-        num_features = 24
-        print("Warning: Could not detect feature size from model metadata. Defaulting to 24.")
+        num_features = 25
+        print("Warning: Could not detect feature size from model metadata. Defaulting to 25.")
 
     # Try to infer feature names list
     feature_names = None
@@ -380,20 +390,20 @@ def apply_active_learning(session_path, model_spec='regular'):
 
     # Fallback to predefined lists if we still don't have feature names
     if not feature_names:
-        if num_features == 24:
-            feature_names = FEATURE_NAMES_24
-        elif num_features == 26:
-            feature_names = FEATURE_NAMES_26
+        if num_features == 25:
+            feature_names = FEATURE_NAMES_25
+        elif num_features == 27:
+            feature_names = FEATURE_NAMES_27
         else:
             feature_names = [f"feature_{i}" for i in range(num_features)]
 
     X = extract_features(F, Fneu, stat, feature_names)
     probs = model.predict_proba(X)[:, 1]
 
-    # Select optimal decision threshold based on feature layout (24 or 26)
-    if num_features == 24:
+    # Select optimal decision threshold based on feature layout (25 or 27)
+    if num_features == 25:
         threshold = 0.66
-    elif num_features == 26:
+    elif num_features == 27:
         threshold = 0.69
     else:
         # Default fallback
@@ -436,8 +446,8 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: python apply_AI.py <path_to_suite2p_session_folder> [model_preset_or_path]")
         print("\nPresets:")
-        print("  regular   - LightGBM with Continuous Index (24 features, Recommended Default)")
-        print("  noidx     - LightGBM with No Index (Option A, 26 features)")
+        print("  regular   - LightGBM with Continuous Index (25 features, Recommended Default)")
+        print("  noidx     - LightGBM with No Index (Option A, 27 features)")
     else:
         model_choice = sys.argv[2] if len(sys.argv) > 2 else 'regular'
         apply_active_learning(sys.argv[1], model_choice)

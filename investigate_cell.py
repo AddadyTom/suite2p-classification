@@ -19,6 +19,7 @@ MASTER_FEATURE_DESCS = {
     'compact': 'Spatial compactness. Measures circularity; real cells are circular.',
     'npix': 'Number of pixels. Indicates the physical size of the ROI.',
     'number_of_bright_pixels': 'Number of pixels in the ROI carrying significant weight (lam > 0.1 * max_lam).',
+    'bright_pixels_ratio': 'Ratio of bright pixels to total pixels in the ROI (number_of_bright_pixels / npix).',
     'max_to_mean_f': 'Dynamic range ratio (Max F / Mean F). Measures peak transient height relative to baseline.',
     'cv_f': 'Coefficient of variation (Std F / Mean F). Scale-free measurement of trace dynamics.',
     'aspect_ratio': 'Aspect ratio of bounding box. Real cells tend to be close to 1.0.',
@@ -57,7 +58,8 @@ MASTER_FEATURE_DESCS = {
     'peak_density': 'Density of 2-standard-deviation peaks per frame. Measures active firing frequency.'
 }
 
-FEATURE_NAMES_24 = [
+# Legacy Feature Lists
+FEATURE_NAMES_24_legacy = [
     'number_of_bright_pixels', 'solidity', 'mrs', 'roi_idx_norm',
     'skew_f', 'std_f', 'max_to_mean_f', 'cv_f',
     'skew_fneu', 'corr_f_fneu', 'skew_fcorr', 'std_fcorr', 'q10', 'q25',
@@ -65,7 +67,7 @@ FEATURE_NAMES_24 = [
     'range_fcorr', 'range_f'
 ]
 
-FEATURE_NAMES_26 = [
+FEATURE_NAMES_26_legacy = [
     'number_of_bright_pixels', 'solidity', 'mrs',
     'skew_f', 'std_f', 'max_to_mean_f', 'cv_f', 'skew_fneu', 'corr_f_fneu',
     'skew_fcorr', 'std_fcorr', 'q10', 'q25', 'q50', 'q75', 'q90', 'q95', 'q99',
@@ -73,8 +75,32 @@ FEATURE_NAMES_26 = [
     'snr', 'activity_ratio', 'peak_density'
 ]
 
-FEATURE_NAMES_27 = [
+FEATURE_NAMES_27_legacy = [
     'number_of_bright_pixels', 'solidity', 'mrs', 'roi_idx_norm_3bin',
+    'skew_f', 'std_f', 'max_to_mean_f', 'cv_f', 'skew_fneu', 'corr_f_fneu',
+    'skew_fcorr', 'std_fcorr', 'q10', 'q25', 'q50', 'q75', 'q90', 'q95', 'q99',
+    'avg_asym', 'max_asym', 'max_width', 'range_fcorr', 'range_f',
+    'snr', 'activity_ratio', 'peak_density'
+]
+
+# New Feature Lists
+FEATURE_NAMES_25 = [
+    'number_of_bright_pixels', 'bright_pixels_ratio', 'solidity', 'mrs', 'roi_idx_norm',
+    'skew_f', 'std_f', 'max_to_mean_f', 'cv_f', 'skew_fneu', 'corr_f_fneu',
+    'skew_fcorr', 'std_fcorr', 'q10', 'q25', 'q50', 'q75', 'q90', 'q95', 'q99',
+    'avg_asym', 'max_asym', 'max_width', 'range_fcorr', 'range_f'
+]
+
+FEATURE_NAMES_27 = [
+    'number_of_bright_pixels', 'bright_pixels_ratio', 'solidity', 'mrs',
+    'skew_f', 'std_f', 'max_to_mean_f', 'cv_f', 'skew_fneu', 'corr_f_fneu',
+    'skew_fcorr', 'std_fcorr', 'q10', 'q25', 'q50', 'q75', 'q90', 'q95', 'q99',
+    'avg_asym', 'max_asym', 'max_width', 'range_fcorr', 'range_f',
+    'snr', 'activity_ratio', 'peak_density'
+]
+
+FEATURE_NAMES_28_bin = [
+    'number_of_bright_pixels', 'bright_pixels_ratio', 'solidity', 'mrs', 'roi_idx_norm_3bin',
     'skew_f', 'std_f', 'max_to_mean_f', 'cv_f', 'skew_fneu', 'corr_f_fneu',
     'skew_fcorr', 'std_fcorr', 'q10', 'q25', 'q50', 'q75', 'q90', 'q95', 'q99',
     'avg_asym', 'max_asym', 'max_width', 'range_fcorr', 'range_f',
@@ -158,6 +184,13 @@ def extract_features_single(F_row, Fneu_row, spks_row, stat_entry, roi_idx, n_ro
                     max_lam = np.max(lam) if len(lam) > 0 else 0.0
                     bright_pix = float(np.sum(lam > 0.1 * max_lam)) if max_lam > 0 else 0.0
                 row.append(bright_pix)
+            elif name == 'bright_pixels_ratio':
+                if bright_pix is None:
+                    lam = stat_entry.get('lam', np.zeros(0))
+                    max_lam = np.max(lam) if len(lam) > 0 else 0.0
+                    bright_pix = float(np.sum(lam > 0.1 * max_lam)) if max_lam > 0 else 0.0
+                npix = float(stat_entry.get('npix', 0))
+                row.append(bright_pix / npix if npix > 0 else 0.0)
                 
             # Index features
             elif name == 'roi_idx_norm':
@@ -501,7 +534,7 @@ class SessionState:
         self.model = None
         self.scaler = None
         self.num_features = 29
-        self.feature_names = FEATURE_NAMES_29
+        self.feature_names = FEATURE_NAMES_25
         self.feature_descs = {}
         
         # Extracted data cache
@@ -588,16 +621,20 @@ class SessionState:
                 except:
                     pass
 
-        # Fallback to predefined lists if we still don't have feature names
         if not feature_names:
-            if self.num_features == 24:
-                feature_names = FEATURE_NAMES_24
-            elif self.num_features == 26:
-                feature_names = FEATURE_NAMES_26
+            if self.num_features == 25:
+                feature_names = FEATURE_NAMES_25
             elif self.num_features == 27:
                 feature_names = FEATURE_NAMES_27
             elif self.num_features == 28:
-                feature_names = FEATURE_NAMES_28
+                if "3bin" in str(self.model_path) or "bin" in str(self.model_path):
+                    feature_names = FEATURE_NAMES_28_bin
+                else:
+                    feature_names = FEATURE_NAMES_28
+            elif self.num_features == 24:
+                feature_names = FEATURE_NAMES_24_legacy
+            elif self.num_features == 26:
+                feature_names = FEATURE_NAMES_26_legacy
             elif self.num_features == 31:
                 feature_names = FEATURE_NAMES_31
             elif self.num_features == 29:

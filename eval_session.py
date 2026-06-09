@@ -12,7 +12,7 @@ warnings.filterwarnings('ignore')
 
 # Ensure workspace root is in python path
 sys.path.append(str(Path(__file__).parent.resolve()))
-from apply_AI import extract_features, FEATURE_NAMES_24
+from apply_AI import extract_features, FEATURE_NAMES_25, FEATURE_NAMES_27
 
 def evaluate_session(session_path_str, model_path_str):
     session_path = Path(session_path_str)
@@ -61,17 +61,23 @@ def evaluate_session(session_path_str, model_path_str):
     elif hasattr(model, 'n_features_'):
         num_features = model.n_features_
     else:
-        num_features = 24
+        num_features = 25
         
     print(f"Extracting {num_features} features dynamically...")
-    X = extract_features(F, Fneu, stat, FEATURE_NAMES_24)
+    if num_features == 25:
+        X = extract_features(F, Fneu, stat, FEATURE_NAMES_25)
+    elif num_features == 27:
+        X = extract_features(F, Fneu, stat, FEATURE_NAMES_27)
+    else:
+        raise ValueError(f"Model expects unsupported feature count: {num_features}")
+        
     X = np.nan_to_num(X)
     
     # Predict probabilities and apply optimal threshold
     y_prob = model.predict_proba(X)[:, 1]
     
     # Threshold preset matching apply_AI logic
-    threshold = 0.66 if num_features == 24 else 0.69
+    threshold = 0.66 if num_features == 25 else 0.69
     y_pred = (y_prob >= threshold).astype(int)
     
     p = precision_score(y_true, y_pred)
