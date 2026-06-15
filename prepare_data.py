@@ -8,14 +8,14 @@ from joblib import Parallel, delayed
 
 # Ensure workspace root is in python path
 sys.path.append(str(Path(__file__).parent.resolve()))
-from apply_AI import extract_features, FEATURE_NAMES_25
+from apply_AI import extract_features, FEATURE_NAMES_25, FEATURE_NAMES_27, FEATURE_NAMES_38
 
-def process_single_session(session_path, group_id, label_options, cache_dir):
+def process_single_session(session_path, group_id, label_options, cache_dir, feature_names, cache_suffix):
     try:
         # Define cache path
         path_str = str(session_path.resolve())
         path_hash = hashlib.md5(path_str.encode('utf-8')).hexdigest()
-        cache_file = cache_dir / f"session_{path_hash}_25features.npz"
+        cache_file = cache_dir / f"session_{path_hash}_{cache_suffix}.npz"
         
         # Load from cache if it exists
         if cache_file.exists():
@@ -44,7 +44,7 @@ def process_single_session(session_path, group_id, label_options, cache_dir):
         y = iscell[:, 0].astype(int)
         
         # Extract features using apply_AI's pipeline (ensures perfect alignment)
-        X = extract_features(F, Fneu, stat, FEATURE_NAMES_25)
+        X = extract_features(F, Fneu, stat, feature_names)
         
         # Save to cache
         try:
@@ -57,7 +57,7 @@ def process_single_session(session_path, group_id, label_options, cache_dir):
         print(f"Error processing {session_path}: {e}")
         return None
 
-def process_sessions(source_dir, output_dir):
+def process_sessions(source_dir, output_dir, preset='regular'):
     source_path = Path(source_dir)
     out_path = Path(output_dir)
     out_path.mkdir(exist_ok=True)
@@ -89,9 +89,29 @@ def process_sessions(source_dir, output_dir):
         print("No sessions found with ground truth labels. Exiting.")
         return
         
+    # Select feature config based on preset
+    if preset == 'noidx':
+        feature_names = FEATURE_NAMES_27
+        cache_suffix = '27features_v2'
+        x_name = 'X_dataset_noidx.npy'
+        y_name = 'y_dataset_noidx.npy'
+        groups_name = 'groups_dataset_noidx.npy'
+    elif preset == 'rich':
+        feature_names = FEATURE_NAMES_38
+        cache_suffix = '38features'
+        x_name = 'X_dataset_rich.npy'
+        y_name = 'y_dataset_rich.npy'
+        groups_name = 'groups_dataset_rich.npy'
+    else:
+        feature_names = FEATURE_NAMES_25
+        cache_suffix = '25features'
+        x_name = 'X_dataset.npy'
+        y_name = 'y_dataset.npy'
+        groups_name = 'groups_dataset.npy'
+
     # Parallel feature extraction using joblib
     results = Parallel(n_jobs=-1)(
-        delayed(process_single_session)(session_path, group_id, label_options, cache_dir)
+        delayed(process_single_session)(session_path, group_id, label_options, cache_dir, feature_names, cache_suffix)
         for group_id, session_path in enumerate(valid_sessions)
     )
     
@@ -120,15 +140,16 @@ def process_sessions(source_dir, output_dir):
     print(f"  Cells (1):  {np.sum(y == 1)}")
     print(f"  Noise (0):  {np.sum(y == 0)}")
     
-    np.save(out_path / 'X_dataset.npy', X)
-    np.save(out_path / 'y_dataset.npy', y)
-    np.save(out_path / 'groups_dataset.npy', groups)
-    print(f"Saved dataset arrays to: {out_path.resolve()}")
+    np.save(out_path / x_name, X)
+    np.save(out_path / y_name, y)
+    np.save(out_path / groups_name, groups)
+    print(f"Saved dataset arrays ({preset} preset) to: {out_path.resolve()}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Prepare Suite2p Cell Prediction Dataset")
     parser.add_argument('--source', type=str, default="/mnt/other_ubunthu/mnt/data", help="Directory containing Suite2p session folders")
     parser.add_argument('--output', type=str, default=".", help="Directory to save compiled .npy arrays")
+    parser.add_argument('--preset', type=str, choices=['regular', 'noidx', 'rich'], default="regular", help="Feature set preset ('regular' = 25 features, 'noidx' = 27 features, 'rich' = 38 features)")
     args = parser.parse_args()
     
-    process_sessions(args.source, args.output)
+    process_sessions(args.source, args.output, args.preset)

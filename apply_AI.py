@@ -25,6 +25,16 @@ FEATURE_NAMES_27 = [
     'snr', 'activity_ratio', 'peak_density'
 ]
 
+FEATURE_NAMES_38 = [
+    'number_of_bright_pixels', 'bright_pixels_ratio', 'solidity', 'mrs',
+    'skew_f', 'std_f', 'max_to_mean_f', 'cv_f', 'skew_fneu', 'corr_f_fneu',
+    'skew_fcorr', 'std_fcorr', 'q10', 'q25', 'q50', 'q75', 'q90', 'q95', 'q99',
+    'avg_asym', 'max_asym', 'max_width', 'range_fcorr', 'range_f',
+    'snr', 'activity_ratio', 'peak_density',
+    'std_f_norm', 'std_fcorr_norm', 'range_f_norm', 'range_fcorr_norm',
+    'q10_norm', 'q25_norm', 'q50_norm', 'q75_norm', 'q90_norm', 'q95_norm', 'q99_norm'
+]
+
 # ==========================================
 # 1. FEATURE EXTRACTION LOGIC
 # ==========================================
@@ -55,6 +65,14 @@ def extract_features(F, Fneu, stat, num_features_or_names):
             fneu = Fneu[i]
             f_corr = f - 0.7 * fneu
             s = stat[i]
+            
+            std_diff_f = np.std(np.diff(f))
+            if std_diff_f <= 0:
+                std_diff_f = 1e-6
+            std_diff_fcorr = np.std(np.diff(f_corr))
+            if std_diff_fcorr <= 0:
+                std_diff_fcorr = 1e-6
+            is_noidx = (len(feature_names) == 27)
             
             avg_asym, max_asym, max_width = None, None, None
             bright_pix = None
@@ -103,7 +121,10 @@ def extract_features(F, Fneu, stat, num_features_or_names):
                 elif name == 'skew_f':
                     row.append(float(skew(f)))
                 elif name == 'std_f':
-                    row.append(float(np.std(f)))
+                    val = float(np.std(f))
+                    if is_noidx:
+                        val /= std_diff_f
+                    row.append(val)
                 elif name == 'max_f':
                     row.append(float(np.max(f)))
                 elif name == 'mean_f':
@@ -121,12 +142,22 @@ def extract_features(F, Fneu, stat, num_features_or_names):
                 elif name == 'skew_fcorr':
                     row.append(float(skew(f_corr)))
                 elif name == 'std_fcorr':
-                    row.append(float(np.std(f_corr)))
+                    val = float(np.std(f_corr))
+                    if is_noidx:
+                        val /= std_diff_fcorr
+                    row.append(val)
                     
                 # Quantiles
                 elif name.startswith('q') and name[1:].isdigit():
                     pct = float(name[1:]) / 100.0
-                    row.append(float(np.quantile(f_corr, pct)))
+                    val = float(np.quantile(f_corr, pct))
+                    if is_noidx:
+                        median_val = np.median(f_corr)
+                        if pct == 0.5:
+                            val = median_val / std_diff_fcorr
+                        else:
+                            val = (val - median_val) / std_diff_fcorr
+                    row.append(val)
                     
                 # Dynamics
                 elif name in ('avg_asym', 'max_asym', 'max_width'):
@@ -141,9 +172,15 @@ def extract_features(F, Fneu, stat, num_features_or_names):
                         
                 # Amplitudes
                 elif name == 'range_fcorr':
-                    row.append(float(np.max(f_corr) - np.min(f_corr)))
+                    val = float(np.max(f_corr) - np.min(f_corr))
+                    if is_noidx:
+                        val /= std_diff_fcorr
+                    row.append(val)
                 elif name == 'range_f':
-                    row.append(float(np.max(f) - np.min(f)))
+                    val = float(np.max(f) - np.min(f))
+                    if is_noidx:
+                        val /= std_diff_f
+                    row.append(val)
                     
                 # New Biological
                 elif name == 'snr':
@@ -160,6 +197,24 @@ def extract_features(F, Fneu, stat, num_features_or_names):
                 elif name == 'peak_density':
                     peaks, _ = find_peaks(f_corr, height=np.mean(f_corr) + 2*np.std(f_corr), distance=10)
                     row.append(float(len(peaks) / len(f_corr)) if len(f_corr) > 0 else 0.0)
+                    
+                # Explicitly Normalized Features for rich sets
+                elif name == 'std_f_norm':
+                    row.append(float(np.std(f) / std_diff_f))
+                elif name == 'std_fcorr_norm':
+                    row.append(float(np.std(f_corr) / std_diff_fcorr))
+                elif name == 'range_f_norm':
+                    row.append(float((np.max(f) - np.min(f)) / std_diff_f))
+                elif name == 'range_fcorr_norm':
+                    row.append(float((np.max(f_corr) - np.min(f_corr)) / std_diff_fcorr))
+                elif name.endswith('_norm') and name.startswith('q') and name[1:-5].isdigit():
+                    pct = float(name[1:-5]) / 100.0
+                    val = float(np.quantile(f_corr, pct))
+                    median_val = np.median(f_corr)
+                    if pct == 0.5:
+                        row.append(median_val / std_diff_fcorr)
+                    else:
+                        row.append((val - median_val) / std_diff_fcorr)
                     
                 else:
                     print(f"Warning: Unknown feature name '{name}'. Defaulting to 0.0.")
@@ -191,26 +246,50 @@ def extract_features(F, Fneu, stat, num_features_or_names):
         if num_features == 25:
             # Spatial (5) - Continuous Index
             spatial = [bright_pix, bright_ratio, solidity, mrs, i / n_cells if n_cells > 0 else 0.0]
-        elif num_features == 27:
+        elif num_features in (27, 38):
             # Spatial (4) - No Index
             spatial = [bright_pix, bright_ratio, solidity, mrs]
         else:
-            raise ValueError(f"Unsupported number of features: {num_features}. Model must expect 25 or 27 features.")
+            raise ValueError(f"Unsupported number of features: {num_features}. Model must expect 25, 27 or 38 features.")
             
+        std_diff_f = np.std(np.diff(f))
+        if std_diff_f <= 0:
+            std_diff_f = 1e-6
+        std_diff_fcorr = np.std(np.diff(f_corr))
+        if std_diff_fcorr <= 0:
+            std_diff_fcorr = 1e-6
+
         # Trace Stats (8)
         mean_f_val = np.mean(f)
         max_to_mean_f = np.max(f) / mean_f_val if mean_f_val > 0 else 1.0
         cv_f = np.std(f) / mean_f_val if mean_f_val > 0 else 0.0
         
+        if num_features == 27:
+            std_f_val = np.std(f) / std_diff_f
+            std_fcorr_val = np.std(f_corr) / std_diff_fcorr
+        else:
+            std_f_val = np.std(f)
+            std_fcorr_val = np.std(f_corr)
+
         trace_stats = [
-            skew(f), np.std(f), max_to_mean_f, cv_f,
+            skew(f), std_f_val, max_to_mean_f, cv_f,
             skew(fneu),
             np.corrcoef(f, fneu)[0, 1] if np.std(f)>0 and np.std(fneu)>0 else 0,
-            skew(f_corr), np.std(f_corr)
+            skew(f_corr), std_fcorr_val
         ]
         
         # Percentiles (7)
-        q = np.quantile(f_corr, [0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]).tolist()
+        q_raw = np.quantile(f_corr, [0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99])
+        if num_features == 27:
+            q = []
+            median_val = q_raw[2]
+            for idx, val in enumerate(q_raw):
+                if idx == 2:
+                    q.append(median_val / std_diff_fcorr)
+                else:
+                    q.append((val - median_val) / std_diff_fcorr)
+        else:
+            q = q_raw.tolist()
         
         # Dynamics (3)
         dynamics = [avg_asym, max_asym, max_width]
@@ -218,12 +297,16 @@ def extract_features(F, Fneu, stat, num_features_or_names):
         # Trace Amplitudes (2)
         range_fcorr = np.max(f_corr) - np.min(f_corr)
         range_f = np.max(f) - np.min(f)
+        if num_features == 27:
+            range_fcorr = range_fcorr / std_diff_fcorr
+            range_f = range_f / std_diff_f
+            
         amplitudes = [range_fcorr, range_f]
         
         row = spatial + trace_stats + q + dynamics + amplitudes
         
-        if num_features == 26:
-            # New Biological (3) for No Index model
+        if num_features in (27, 38):
+            # New Biological (3) for No Index/Rich models
             diff_f = np.diff(f_corr)
             std_diff = np.std(diff_f)
             snr_val = np.std(f_corr) / std_diff if std_diff > 0 else 0.0
@@ -240,6 +323,23 @@ def extract_features(F, Fneu, stat, num_features_or_names):
             
             new_bio = [snr_val, activity_ratio, peak_density]
             row.extend(new_bio)
+            
+        if num_features == 38:
+            # 11 Normalized Features:
+            std_f_norm = np.std(f) / std_diff_f
+            std_fcorr_norm = np.std(f_corr) / std_diff_fcorr
+            range_f_norm = (np.max(f) - np.min(f)) / std_diff_f
+            range_fcorr_norm = (np.max(f_corr) - np.min(f_corr)) / std_diff_fcorr
+            
+            q_norm = []
+            median_val = q_raw[2]
+            for idx, val in enumerate(q_raw):
+                if idx == 2:
+                    q_norm.append(median_val / std_diff_fcorr)
+                else:
+                    q_norm.append((val - median_val) / std_diff_fcorr)
+            
+            row.extend([std_f_norm, std_fcorr_norm, range_f_norm, range_fcorr_norm] + q_norm)
             
         features.append(row)
         
@@ -326,6 +426,7 @@ def apply_active_learning(session_path, model_spec='regular'):
         'regular': base_dir / 'models' / 'regular' / 'suite2p_best_lgb.pkl',
         'noidx': base_dir / 'models' / 'no_index' / 'suite2p_best_lgb.pkl',
         'no_index': base_dir / 'models' / 'no_index' / 'suite2p_best_lgb.pkl',
+        'rich': base_dir / 'models' / 'rich' / 'suite2p_best_lgb.pkl',
     }
 
     model_path = model_spec
@@ -336,7 +437,7 @@ def apply_active_learning(session_path, model_spec='regular'):
 
     if not model_path.exists():
         print(f"Error: Model file '{model_path}' not found.")
-        print("Available presets: 'regular', 'noidx'")
+        print("Available presets: 'regular', 'noidx', 'rich'")
         return
 
     print(f"Loading model: {model_path}...")
@@ -394,16 +495,18 @@ def apply_active_learning(session_path, model_spec='regular'):
             feature_names = FEATURE_NAMES_25
         elif num_features == 27:
             feature_names = FEATURE_NAMES_27
+        elif num_features == 38:
+            feature_names = FEATURE_NAMES_38
         else:
             feature_names = [f"feature_{i}" for i in range(num_features)]
 
     X = extract_features(F, Fneu, stat, feature_names)
     probs = model.predict_proba(X)[:, 1]
 
-    # Select optimal decision threshold based on feature layout (25 or 27)
+    # Select optimal decision threshold based on feature layout (25, 27 or 38)
     if num_features == 25:
         threshold = 0.66
-    elif num_features == 27:
+    elif num_features in (27, 38):
         threshold = 0.69
     else:
         # Default fallback
@@ -448,6 +551,7 @@ if __name__ == "__main__":
         print("\nPresets:")
         print("  regular   - LightGBM with Continuous Index (25 features, Recommended Default)")
         print("  noidx     - LightGBM with No Index (Option A, 27 features)")
+        print("  rich      - LightGBM with Rich Features (38 features)")
     else:
         model_choice = sys.argv[2] if len(sys.argv) > 2 else 'regular'
         apply_active_learning(sys.argv[1], model_choice)

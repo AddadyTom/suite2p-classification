@@ -555,8 +555,8 @@ class SessionState:
         
     def scan_models(self):
         dir_path = Path("/home/tomer/Documents/suite2p-iscell-prediction")
-        models = [f.name for f in dir_path.glob("*.pkl") if "scaler" not in f.name]
-        scalers = [f.name for f in dir_path.glob("*scaler*.pkl")]
+        models = [str(f.relative_to(dir_path)) for f in dir_path.rglob("*.pkl") if "scaler" not in f.name and not any("venv" in p for p in f.parts)]
+        scalers = [str(f.relative_to(dir_path)) for f in dir_path.rglob("*scaler*.pkl") if not any("venv" in p for p in f.parts)]
         return sorted(models), sorted(scalers)
 
     def load_model(self, model_name, scaler_name=None):
@@ -1845,6 +1845,26 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
             <!-- FULL WIDTH SECTIONS BELOW -->
             <div class="space-y-6 mt-6">
+                <!-- Session Probability Distribution & Clusters -->
+                <section class="glassmorphism p-5 rounded-2xl">
+                    <div class="flex justify-between items-center mb-4">
+                        <div>
+                            <h3 class="text-xs font-semibold uppercase tracking-wider text-gray-400">Session Probability Distribution & ROI Clusters</h3>
+                            <p class="text-xs text-gray-500 mt-1">Interactive overview of all predictions in the session. Click any point on the scatter plot to jump directly to that ROI.</p>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <!-- Scatter Plot -->
+                        <div class="lg:col-span-2 bg-brand-darkBg/30 border border-brand-border/40 rounded-xl p-3">
+                            <div id="probability-scatter-plot" class="w-full h-80"></div>
+                        </div>
+                        <!-- Histogram -->
+                        <div class="lg:col-span-1 bg-brand-darkBg/30 border border-brand-border/40 rounded-xl p-3">
+                            <div id="probability-histogram-plot" class="w-full h-80"></div>
+                        </div>
+                    </div>
+                </section>
+
                 <!-- ROI Suppression & Comparison Tool -->
                 <section class="glassmorphism p-5 rounded-2xl">
                     <h3 class="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-4">ROI Suppression & Comparison Tool</h3>
@@ -2037,6 +2057,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             
             // Fetch category analysis after updating categories
             fetchCategoryAnalysis();
+
+            // Plot/update session-wide probabilities
+            if (typeof plotSessionProbabilities === 'function') {
+                plotSessionProbabilities();
+            }
         }
         
         window.addEventListener('DOMContentLoaded', () => {
@@ -2262,7 +2287,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 plotCalciumTrace(data.trace);
                 drawSpatialROI(data.roi);
                 renderFeaturesTable(data.attributions);
-                
+                if (typeof plotSessionProbabilities === 'function') {
+                    plotSessionProbabilities();
+                }
             } catch(e) {
                 console.error("Error loading cell data:", e);
                 alert("Error loading cell data: " + e);
@@ -2556,6 +2583,276 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             };
             
             Plotly.newPlot('trace-plot', [fTrace, fneuTrace, fcorrTrace, spksTrace], layout, { responsive: true });
+        }
+
+        function plotSessionProbabilities() {
+            if (!sessionInfo || !sessionInfo.loaded || !sessionInfo.probabilities) return;
+
+            const probs = sessionInfo.probabilities;
+            const gt = sessionInfo.ground_truth;
+            const hasGT = sessionInfo.gt_path !== "None" && sessionInfo.gt_path !== "";
+            const threshold = activeThreshold;
+            const N = sessionInfo.total_rois;
+
+            // Arrays to hold data for traces
+            let tp_x = [], tp_y = [], tp_text = [];
+            let fp_x = [], fp_y = [], fp_text = [];
+            let tn_x = [], tn_y = [], tn_text = [];
+            let fn_x = [], fn_y = [], fn_text = [];
+
+            let pred_cell_x = [], pred_cell_y = [], pred_cell_text = [];
+            let pred_noise_x = [], pred_noise_y = [], pred_noise_text = [];
+
+            for (let i = 0; i < N; i++) {
+                const p = probs[i];
+                const g = gt[i];
+                const pred = (p >= threshold) ? 1 : 0;
+
+                const textLabel = `ROI ${i}<br>Prob: ${(p * 100).toFixed(1)}%<br>GT: ${hasGT ? (g === 1 ? 'Cell' : 'Non-Cell') : 'N/A'}`;
+
+                if (hasGT) {
+                    if (pred === 1 && g === 1) {
+                        tp_x.push(i);
+                        tp_y.push(p);
+                        tp_text.push(textLabel);
+                    } else if (pred === 1 && g === 0) {
+                        fp_x.push(i);
+                        fp_y.push(p);
+                        fp_text.push(textLabel);
+                    } else if (pred === 0 && g === 0) {
+                        tn_x.push(i);
+                        tn_y.push(p);
+                        tn_text.push(textLabel);
+                    } else if (pred === 0 && g === 1) {
+                        fn_x.push(i);
+                        fn_y.push(p);
+                        fn_text.push(textLabel);
+                    }
+                } else {
+                    if (pred === 1) {
+                        pred_cell_x.push(i);
+                        pred_cell_y.push(p);
+                        pred_cell_text.push(textLabel);
+                    } else {
+                        pred_noise_x.push(i);
+                        pred_noise_y.push(p);
+                        pred_noise_text.push(textLabel);
+                    }
+                }
+            }
+
+            let scatterTraces = [];
+
+            if (hasGT) {
+                scatterTraces.push({
+                    x: tp_x, y: tp_y, text: tp_text,
+                    name: 'True Positives', type: 'scatter', mode: 'markers',
+                    marker: { color: '#10b981', size: 6, opacity: 0.8 },
+                    hoverinfo: 'text'
+                });
+                scatterTraces.push({
+                    x: fp_x, y: fp_y, text: fp_text,
+                    name: 'False Positives', type: 'scatter', mode: 'markers',
+                    marker: { color: '#f43f5e', size: 6, opacity: 0.8 },
+                    hoverinfo: 'text'
+                });
+                scatterTraces.push({
+                    x: fn_x, y: fn_y, text: fn_text,
+                    name: 'False Negatives', type: 'scatter', mode: 'markers',
+                    marker: { color: '#f59e0b', size: 6, opacity: 0.8 },
+                    hoverinfo: 'text'
+                });
+                scatterTraces.push({
+                    x: tn_x, y: tn_y, text: tn_text,
+                    name: 'True Negatives', type: 'scatter', mode: 'markers',
+                    marker: { color: '#64748b', size: 5, opacity: 0.4 },
+                    hoverinfo: 'text'
+                });
+            } else {
+                scatterTraces.push({
+                    x: pred_cell_x, y: pred_cell_y, text: pred_cell_text,
+                    name: 'Predicted Cells', type: 'scatter', mode: 'markers',
+                    marker: { color: '#3b82f6', size: 6, opacity: 0.8 },
+                    hoverinfo: 'text'
+                });
+                scatterTraces.push({
+                    x: pred_noise_x, y: pred_noise_y, text: pred_noise_text,
+                    name: 'Predicted Non-Cells', type: 'scatter', mode: 'markers',
+                    marker: { color: '#64748b', size: 5, opacity: 0.4 },
+                    hoverinfo: 'text'
+                });
+            }
+
+            // Highlight the active ROI
+            if (activeCellIdx >= 0 && activeCellIdx < N) {
+                const activeProb = probs[activeCellIdx];
+                scatterTraces.push({
+                    x: [activeCellIdx],
+                    y: [activeProb],
+                    text: [`ACTIVE ROI ${activeCellIdx}<br>Prob: ${(activeProb * 100).toFixed(1)}%`],
+                    name: 'Active ROI',
+                    type: 'scatter',
+                    mode: 'markers',
+                    marker: {
+                        color: '#fbbf24',
+                        size: 12,
+                        line: { color: '#ffffff', width: 2 },
+                        symbol: 'star'
+                    },
+                    hoverinfo: 'text',
+                    showlegend: true
+                });
+            }
+
+            const scatterLayout = {
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                margin: { l: 40, r: 10, t: 25, b: 35 },
+                showlegend: true,
+                legend: {
+                    orientation: 'h',
+                    y: 1.15,
+                    x: 0.5,
+                    xanchor: 'center',
+                    font: { color: '#9ca3af', size: 10 }
+                },
+                xaxis: {
+                    title: 'ROI Index',
+                    gridcolor: '#1f2d47',
+                    tickfont: { color: '#9ca3af' },
+                    titlefont: { color: '#9ca3af', size: 11 }
+                },
+                yaxis: {
+                    title: 'AI Probability',
+                    range: [-0.02, 1.02],
+                    gridcolor: '#1f2d47',
+                    tickfont: { color: '#9ca3af' },
+                    titlefont: { color: '#9ca3af', size: 11 }
+                },
+                hovermode: 'closest',
+                clickmode: 'event+select',
+                shapes: [
+                    {
+                        type: 'line',
+                        xref: 'paper',
+                        yref: 'y',
+                        x0: 0,
+                        y0: threshold,
+                        x1: 1,
+                        y1: threshold,
+                        line: {
+                            color: '#fbbf24',
+                            width: 1.5,
+                            dash: 'dash'
+                        }
+                    }
+                ]
+            };
+
+            Plotly.react('probability-scatter-plot', scatterTraces, scatterLayout, { responsive: true, displayModeBar: false });
+
+            // Attach click event for selecting ROI
+            const scatterDiv = document.getElementById('probability-scatter-plot');
+            if (scatterDiv && !scatterDiv.dataset.clickBound) {
+                scatterDiv.on('plotly_click', function(data) {
+                    if (data.points && data.points.length > 0) {
+                        let point = data.points[0];
+                        let roiIdx = point.x;
+                        if (typeof roiIdx === 'number' && roiIdx >= 0 && roiIdx < N) {
+                            loadCell(roiIdx);
+                        }
+                    }
+                });
+                scatterDiv.dataset.clickBound = 'true';
+            }
+
+            // Histogram
+            let histogramTraces = [];
+            
+            if (hasGT) {
+                histogramTraces.push({
+                    x: tp_y,
+                    name: 'TP',
+                    type: 'histogram',
+                    xbins: { start: 0, end: 1, size: 0.05 },
+                    marker: { color: '#10b981', opacity: 0.75 }
+                });
+                histogramTraces.push({
+                    x: fp_y,
+                    name: 'FP',
+                    type: 'histogram',
+                    xbins: { start: 0, end: 1, size: 0.05 },
+                    marker: { color: '#f43f5e', opacity: 0.75 }
+                });
+                histogramTraces.push({
+                    x: fn_y,
+                    name: 'FN',
+                    type: 'histogram',
+                    xbins: { start: 0, end: 1, size: 0.05 },
+                    marker: { color: '#f59e0b', opacity: 0.75 }
+                });
+                histogramTraces.push({
+                    x: tn_y,
+                    name: 'TN',
+                    type: 'histogram',
+                    xbins: { start: 0, end: 1, size: 0.05 },
+                    marker: { color: '#64748b', opacity: 0.4 }
+                });
+            } else {
+                histogramTraces.push({
+                    x: probs,
+                    name: 'All ROIs',
+                    type: 'histogram',
+                    xbins: { start: 0, end: 1, size: 0.05 },
+                    marker: { color: '#3b82f6', opacity: 0.75 }
+                });
+            }
+
+            const histLayout = {
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                margin: { l: 40, r: 10, t: 25, b: 35 },
+                barmode: 'stack',
+                showlegend: true,
+                legend: {
+                    orientation: 'h',
+                    y: 1.15,
+                    x: 0.5,
+                    xanchor: 'center',
+                    font: { color: '#9ca3af', size: 10 }
+                },
+                xaxis: {
+                    title: 'Probability',
+                    range: [-0.02, 1.02],
+                    gridcolor: '#1f2d47',
+                    tickfont: { color: '#9ca3af' },
+                    titlefont: { color: '#9ca3af', size: 11 }
+                },
+                yaxis: {
+                    title: 'ROI Count',
+                    gridcolor: '#1f2d47',
+                    tickfont: { color: '#9ca3af' },
+                    titlefont: { color: '#9ca3af', size: 11 }
+                },
+                shapes: [
+                    {
+                        type: 'line',
+                        xref: 'x',
+                        yref: 'paper',
+                        x0: threshold,
+                        y0: 0,
+                        x1: threshold,
+                        y1: 1,
+                        line: {
+                            color: '#fbbf24',
+                            width: 1.5,
+                            dash: 'dash'
+                        }
+                    }
+                ]
+            };
+
+            Plotly.react('probability-histogram-plot', histogramTraces, histLayout, { responsive: true, displayModeBar: false });
         }
 
         function drawSpatialROI(roi) {
@@ -3180,13 +3477,20 @@ def run_server(port=5000):
     dir_path = Path("/home/tomer/Documents/suite2p-iscell-prediction")
     
     # Pre-load best LGB if available, else MLP
-    models = [f.name for f in dir_path.glob("*.pkl") if "scaler" not in f.name]
+    models = [str(f.relative_to(dir_path)) for f in dir_path.rglob("*.pkl") if "scaler" not in f.name and not any("venv" in p for p in f.parts)]
     
     default_model = None
-    if "suite2p_best_lgb.pkl" in models:
-        default_model = "suite2p_best_lgb.pkl"
-    elif "suite2p_standard_mlp.pkl" in models:
-        default_model = "suite2p_standard_mlp.pkl"
+    regular_best = "models/regular/suite2p_best_lgb.pkl"
+    no_index_best = "models/no_index/suite2p_best_lgb.pkl"
+    if (dir_path / regular_best).exists():
+        default_model = regular_best
+    elif (dir_path / no_index_best).exists():
+        default_model = no_index_best
+    elif "suite2p_best_lgb.pkl" in [Path(m).name for m in models]:
+        for m in models:
+            if Path(m).name == "suite2p_best_lgb.pkl":
+                default_model = m
+                break
     elif len(models) > 0:
         default_model = models[0]
         

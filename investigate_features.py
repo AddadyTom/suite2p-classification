@@ -16,16 +16,29 @@ warnings.filterwarnings('ignore')
 # Ensure workspace root is in python path
 sys.path.append(str(Path(__file__).parent.resolve()))
 
-def analyze_features(data_path_str, source_path_str):
+def analyze_features(data_path_str, source_path_str, preset='regular'):
     data_path = Path(data_path_str)
     source_path = Path(source_path_str) if source_path_str else None
 
     # 1. Load compiled dataset
-    print(f"Loading data from {data_path.resolve()}...")
+    if preset == 'noidx':
+        x_name = 'X_dataset_noidx.npy'
+        y_name = 'y_dataset_noidx.npy'
+        groups_name = 'groups_dataset_noidx.npy'
+    elif preset == 'rich':
+        x_name = 'X_dataset_rich.npy'
+        y_name = 'y_dataset_rich.npy'
+        groups_name = 'groups_dataset_rich.npy'
+    else:
+        x_name = 'X_dataset.npy'
+        y_name = 'y_dataset.npy'
+        groups_name = 'groups_dataset.npy'
+    
+    print(f"Loading data ({preset} preset) from {data_path.resolve()}...")
     try:
-        X = np.load(data_path / 'X_dataset.npy')
-        y = np.load(data_path / 'y_dataset.npy')
-        groups = np.load(data_path / 'groups_dataset.npy')
+        X = np.load(data_path / x_name)
+        y = np.load(data_path / y_name)
+        groups = np.load(data_path / groups_name)
     except FileNotFoundError as e:
         print(f"Error: Missing compiled dataset files. Run prepare_data.py first. Details: {e}")
         return
@@ -40,6 +53,9 @@ def analyze_features(data_path_str, source_path_str):
     elif num_features == 27:
         from apply_AI import FEATURE_NAMES_27
         feature_names = FEATURE_NAMES_27
+    elif num_features == 38:
+        from apply_AI import FEATURE_NAMES_38
+        feature_names = FEATURE_NAMES_38
     else:
         feature_names = [f"feature_{i}" for i in range(num_features)]
 
@@ -259,6 +275,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Iterative Feature Investigation Tool (SHAP-Driven)")
     parser.add_argument('--data', type=str, default=".", help="Directory containing compiled dataset .npy files")
     parser.add_argument('--source', type=str, default="/mnt/other_ubunthu/mnt/data", help="Raw dataset root directory for session folders mapping")
+    parser.add_argument('--preset', type=str, choices=['regular', 'noidx', 'rich'], default="regular", help="Feature set preset ('regular', 'noidx', or 'rich')")
     args = parser.parse_args()
 
-    analyze_features(args.data, args.source)
+    analyze_features(args.data, args.source, args.preset)

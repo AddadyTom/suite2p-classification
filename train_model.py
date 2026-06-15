@@ -7,16 +7,34 @@ from sklearn.metrics import precision_score, recall_score, f1_score
 import joblib
 from pathlib import Path
 
-def train_lgb_model(data_dir, output_model_path):
+def train_lgb_model(data_dir, output_model_path, preset='regular'):
     data_path = Path(data_dir)
-    model_path = Path(output_model_path)
+    
+    # Resolve names based on preset
+    if preset == 'noidx':
+        x_name = 'X_dataset_noidx.npy'
+        y_name = 'y_dataset_noidx.npy'
+        groups_name = 'groups_dataset_noidx.npy'
+        default_out = 'models/no_index/suite2p_best_lgb.pkl'
+    elif preset == 'rich':
+        x_name = 'X_dataset_rich.npy'
+        y_name = 'y_dataset_rich.npy'
+        groups_name = 'groups_dataset_rich.npy'
+        default_out = 'models/rich/suite2p_best_lgb.pkl'
+    else:
+        x_name = 'X_dataset.npy'
+        y_name = 'y_dataset.npy'
+        groups_name = 'groups_dataset.npy'
+        default_out = 'models/regular/suite2p_best_lgb.pkl'
+
+    model_path = Path(output_model_path) if output_model_path else Path(default_out)
     
     # Load compiled arrays
-    print(f"Loading data from {data_path.resolve()}...")
+    print(f"Loading data ({preset} preset) from {data_path.resolve()}...")
     try:
-        X = np.load(data_path / 'X_dataset.npy')
-        y = np.load(data_path / 'y_dataset.npy')
-        groups = np.load(data_path / 'groups_dataset.npy')
+        X = np.load(data_path / x_name)
+        y = np.load(data_path / y_name)
+        groups = np.load(data_path / groups_name)
     except FileNotFoundError as e:
         print(f"Error: Could not load datasets. Run prepare_data.py first. {e}")
         return
@@ -127,7 +145,8 @@ def train_lgb_model(data_dir, output_model_path):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train LightGBM Cell Classifier")
     parser.add_argument('--data', type=str, default=".", help="Directory containing compiled dataset .npy files")
-    parser.add_argument('--output', type=str, default="models/regular/suite2p_best_lgb.pkl", help="Output path for the trained model .pkl")
+    parser.add_argument('--output', type=str, default=None, help="Output path for the trained model .pkl")
+    parser.add_argument('--preset', type=str, choices=['regular', 'noidx', 'rich'], default="regular", help="Feature set preset ('regular', 'noidx', or 'rich')")
     args = parser.parse_args()
     
-    train_lgb_model(args.data, args.output)
+    train_lgb_model(args.data, args.output, args.preset)
