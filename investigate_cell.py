@@ -1853,15 +1853,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                             <p class="text-xs text-gray-500 mt-1">Interactive overview of all predictions in the session. Click any point on the scatter plot to jump directly to that ROI.</p>
                         </div>
                     </div>
-                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div class="bg-brand-darkBg/30 border border-brand-border/40 rounded-xl p-3">
                         <!-- Scatter Plot -->
-                        <div class="lg:col-span-2 bg-brand-darkBg/30 border border-brand-border/40 rounded-xl p-3">
-                            <div id="probability-scatter-plot" class="w-full h-80"></div>
-                        </div>
-                        <!-- Histogram -->
-                        <div class="lg:col-span-1 bg-brand-darkBg/30 border border-brand-border/40 rounded-xl p-3">
-                            <div id="probability-histogram-plot" class="w-full h-80"></div>
-                        </div>
+                        <div id="probability-scatter-plot" class="w-full h-80"></div>
                     </div>
                 </section>
 
@@ -2765,94 +2759,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 });
                 scatterDiv.dataset.clickBound = 'true';
             }
-
-            // Histogram
-            let histogramTraces = [];
-            
-            if (hasGT) {
-                histogramTraces.push({
-                    x: tp_y,
-                    name: 'TP',
-                    type: 'histogram',
-                    xbins: { start: 0, end: 1, size: 0.05 },
-                    marker: { color: '#10b981', opacity: 0.75 }
-                });
-                histogramTraces.push({
-                    x: fp_y,
-                    name: 'FP',
-                    type: 'histogram',
-                    xbins: { start: 0, end: 1, size: 0.05 },
-                    marker: { color: '#f43f5e', opacity: 0.75 }
-                });
-                histogramTraces.push({
-                    x: fn_y,
-                    name: 'FN',
-                    type: 'histogram',
-                    xbins: { start: 0, end: 1, size: 0.05 },
-                    marker: { color: '#f59e0b', opacity: 0.75 }
-                });
-                histogramTraces.push({
-                    x: tn_y,
-                    name: 'TN',
-                    type: 'histogram',
-                    xbins: { start: 0, end: 1, size: 0.05 },
-                    marker: { color: '#64748b', opacity: 0.4 }
-                });
-            } else {
-                histogramTraces.push({
-                    x: probs,
-                    name: 'All ROIs',
-                    type: 'histogram',
-                    xbins: { start: 0, end: 1, size: 0.05 },
-                    marker: { color: '#3b82f6', opacity: 0.75 }
-                });
-            }
-
-            const histLayout = {
-                paper_bgcolor: 'rgba(0,0,0,0)',
-                plot_bgcolor: 'rgba(0,0,0,0)',
-                margin: { l: 40, r: 10, t: 25, b: 35 },
-                barmode: 'stack',
-                showlegend: true,
-                legend: {
-                    orientation: 'h',
-                    y: 1.15,
-                    x: 0.5,
-                    xanchor: 'center',
-                    font: { color: '#9ca3af', size: 10 }
-                },
-                xaxis: {
-                    title: 'Probability',
-                    range: [-0.02, 1.02],
-                    gridcolor: '#1f2d47',
-                    tickfont: { color: '#9ca3af' },
-                    titlefont: { color: '#9ca3af', size: 11 }
-                },
-                yaxis: {
-                    title: 'ROI Count',
-                    gridcolor: '#1f2d47',
-                    tickfont: { color: '#9ca3af' },
-                    titlefont: { color: '#9ca3af', size: 11 }
-                },
-                shapes: [
-                    {
-                        type: 'line',
-                        xref: 'x',
-                        yref: 'paper',
-                        x0: threshold,
-                        y0: 0,
-                        x1: threshold,
-                        y1: 1,
-                        line: {
-                            color: '#fbbf24',
-                            width: 1.5,
-                            dash: 'dash'
-                        }
-                    }
-                ]
-            };
-
-            Plotly.react('probability-histogram-plot', histogramTraces, histLayout, { responsive: true, displayModeBar: false });
         }
 
         function drawSpatialROI(roi) {
