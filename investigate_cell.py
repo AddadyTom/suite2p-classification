@@ -1532,7 +1532,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
     <!-- HEADER -->
     <header class="border-b border-brand-border bg-brand-cardBg/50 sticky top-0 z-50 backdrop-blur-md">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+        <div class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
             <div class="flex items-center gap-3">
                 <div class="bg-blue-600 text-white p-2 rounded-xl shadow-lg shadow-blue-500/20">
                     <i class="fa-solid fa-microscope text-xl"></i>
@@ -1553,7 +1553,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         </div>
     </header>
 
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+    <main class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
         
         <!-- SETTINGS PANEL (CONFIGURABILITY BAR) -->
         <section class="glassmorphism p-5 rounded-2xl shadow-xl space-y-4">
@@ -1855,7 +1855,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     </div>
                     <div class="bg-brand-darkBg/30 border border-brand-border/40 rounded-xl p-3">
                         <!-- Scatter Plot -->
-                        <div id="probability-scatter-plot" class="w-full h-80"></div>
+                        <div id="probability-scatter-plot" class="w-full h-[450px]"></div>
                     </div>
                 </section>
 
@@ -2035,19 +2035,43 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             let fp_count = fp.length;
             let fn_count = fn.length;
             
-            let precision = tp_count + fp_count > 0 ? tp_count / (tp_count + fp_count) : 0;
-            let recall = tp_count + fn_count > 0 ? tp_count / (tp_count + fn_count) : 0;
-            let f1 = precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : 0;
+            const hasGT = sessionInfo.gt_path !== "None" && sessionInfo.gt_path !== "";
             
-            document.getElementById('pred-cells-display').textContent = tp_count + fp_count;
+            if (hasGT) {
+                let precision = tp_count + fp_count > 0 ? tp_count / (tp_count + fp_count) : 0;
+                let recall = tp_count + fn_count > 0 ? tp_count / (tp_count + fn_count) : 0;
+                let f1 = precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : 0;
+                
+                document.getElementById('precision-display').textContent = (precision * 100).toFixed(1) + '%';
+                document.getElementById('recall-display').textContent = (recall * 100).toFixed(1) + '%';
+                document.getElementById('f1-display').textContent = (f1 * 100).toFixed(1) + '%';
+                document.getElementById('gt-cells-display').textContent = sessionInfo.ground_truth.filter(x => x === 1).length;
+                
+                document.getElementById('btn-true_positives').classList.remove('hidden');
+                document.getElementById('btn-false_negatives').classList.remove('hidden');
+                
+                document.getElementById('btn-true_positives').innerHTML = `<i class="fa-solid fa-check-double"></i> True Positives (<span id="count-tp">${tp_count}</span>)`;
+                document.getElementById('btn-false_positives').innerHTML = `<i class="fa-solid fa-circle-xmark"></i> False Positives (<span id="count-fp">${fp_count}</span>)`;
+                document.getElementById('btn-false_negatives').innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> False Negatives (<span id="count-fn">${fn_count}</span>)`;
+            } else {
+                document.getElementById('precision-display').textContent = 'N/A';
+                document.getElementById('recall-display').textContent = 'N/A';
+                document.getElementById('f1-display').textContent = 'N/A';
+                document.getElementById('gt-cells-display').textContent = 'N/A';
+                
+                document.getElementById('btn-true_positives').classList.add('hidden');
+                document.getElementById('btn-false_negatives').classList.add('hidden');
+                
+                document.getElementById('btn-false_positives').innerHTML = `<i class="fa-solid fa-brain"></i> Predicted Cells (<span id="count-fp">${fp_count}</span>)`;
+            }
+            
+            document.getElementById('btn-uncertain').innerHTML = `<i class="fa-solid fa-question-circle"></i> Uncertain 15-85% (<span id="count-unc">${uncertain.length}</span>)`;
+            
+            document.getElementById('pred-cells-display').textContent = fp_count; // fp contains all pred===1 cells when g===0
             document.getElementById('count-tp').textContent = tp_count;
             document.getElementById('count-fp').textContent = fp_count;
             document.getElementById('count-fn').textContent = fn_count;
             document.getElementById('count-unc').textContent = uncertain.length;
-            
-            document.getElementById('precision-display').textContent = (precision * 100).toFixed(1) + '%';
-            document.getElementById('recall-display').textContent = (recall * 100).toFixed(1) + '%';
-            document.getElementById('f1-display').textContent = (f1 * 100).toFixed(1) + '%';
             
             // Fetch category analysis after updating categories
             fetchCategoryAnalysis();
@@ -2066,6 +2090,17 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     let val = parseInt(e.target.value);
                     if (!isNaN(val)) loadCell(val);
                 }
+            });
+
+            // Handle Plotly resizing for responsiveness
+            window.addEventListener('resize', () => {
+                const charts = ['attribution-chart', 'trace-plot', 'probability-scatter-plot'];
+                charts.forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el && el.innerHTML) {
+                        Plotly.Plots.resize(el);
+                    }
+                });
             });
         });
 
@@ -2296,17 +2331,29 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
         function updateCategoryButtonStyles() {
             const categories = ['true_positives', 'false_positives', 'false_negatives', 'uncertain'];
-            const normalClasses = {
+            const hasGT = sessionInfo && sessionInfo.gt_path !== "None" && sessionInfo.gt_path !== "";
+            
+            const normalClasses = hasGT ? {
                 'true_positives': 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border-emerald-500/10',
                 'false_positives': 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border-rose-500/10',
                 'false_negatives': 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border-amber-500/10',
                 'uncertain': 'bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border-blue-500/10'
+            } : {
+                'true_positives': 'bg-gray-500/10 hover:bg-gray-500/20 text-gray-400 border-gray-500/10',
+                'false_positives': 'bg-gray-500/10 hover:bg-gray-500/20 text-gray-300 border-gray-500/10',
+                'false_negatives': 'bg-gray-500/10 hover:bg-gray-500/20 text-gray-400 border-gray-500/10',
+                'uncertain': 'bg-gray-500/10 hover:bg-gray-500/20 text-gray-300 border-gray-500/10'
             };
-            const activeClasses = {
+            const activeClasses = hasGT ? {
                 'true_positives': 'bg-emerald-500 text-white border-emerald-400 shadow-md shadow-emerald-500/20',
                 'false_positives': 'bg-rose-500 text-white border-rose-400 shadow-md shadow-rose-500/20',
                 'false_negatives': 'bg-amber-500 text-white border-amber-400 shadow-md shadow-amber-500/20',
                 'uncertain': 'bg-blue-500 text-white border-blue-400 shadow-md shadow-blue-500/20'
+            } : {
+                'true_positives': 'bg-gray-600 text-white border-gray-500 shadow-md shadow-gray-600/20',
+                'false_positives': 'bg-gray-600 text-white border-gray-500 shadow-md shadow-gray-600/20',
+                'false_negatives': 'bg-gray-600 text-white border-gray-500 shadow-md shadow-gray-600/20',
+                'uncertain': 'bg-gray-600 text-white border-gray-500 shadow-md shadow-gray-600/20'
             };
 
             categories.forEach(cat => {
@@ -2330,6 +2377,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             if (indicator) {
                 if (activeCategory) {
                     let displayName = activeCategory.replace('_', ' ');
+                    if (!hasGT && activeCategory === 'false_positives') {
+                        displayName = 'Predicted Cells';
+                    }
                     displayName = displayName.charAt(0).toUpperCase() + displayName.slice(1);
                     indicator.textContent = `Browsing: ${displayName}`;
                     indicator.classList.remove('hidden');
@@ -2665,14 +2715,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             } else {
                 scatterTraces.push({
                     x: pred_cell_x, y: pred_cell_y, text: pred_cell_text,
-                    name: 'Predicted Cells', type: 'scatter', mode: 'markers',
-                    marker: { color: '#3b82f6', size: 6, opacity: 0.8 },
+                    name: 'ROIs', type: 'scatter', mode: 'markers',
+                    marker: { color: '#9ca3af', size: 6, opacity: 0.8 },
                     hoverinfo: 'text'
                 });
                 scatterTraces.push({
                     x: pred_noise_x, y: pred_noise_y, text: pred_noise_text,
-                    name: 'Predicted Non-Cells', type: 'scatter', mode: 'markers',
-                    marker: { color: '#64748b', size: 5, opacity: 0.4 },
+                    name: 'ROIs (Suppressed/Noise)', type: 'scatter', mode: 'markers',
+                    marker: { color: '#4b5563', size: 5, opacity: 0.4 },
                     hoverinfo: 'text'
                 });
             }
@@ -2699,13 +2749,15 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             }
 
             const scatterLayout = {
+                autosize: true,
+                height: 450,
                 paper_bgcolor: 'rgba(0,0,0,0)',
                 plot_bgcolor: 'rgba(0,0,0,0)',
-                margin: { l: 40, r: 10, t: 25, b: 35 },
+                margin: { l: 50, r: 20, t: 15, b: 40 },
                 showlegend: true,
                 legend: {
                     orientation: 'h',
-                    y: 1.15,
+                    y: 1.1,
                     x: 0.5,
                     xanchor: 'center',
                     font: { color: '#9ca3af', size: 10 }
