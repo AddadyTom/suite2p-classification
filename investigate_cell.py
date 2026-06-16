@@ -3400,7 +3400,7 @@ def run_server(port=5000):
     elif len(models) > 0:
         default_model = models[0]
         
-    if default_model:
+    if default_model and not state.model_path:
         try:
             state.load_model(default_model)
         except Exception as e:
