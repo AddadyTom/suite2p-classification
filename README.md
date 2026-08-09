@@ -25,33 +25,71 @@ It features a shape-invariant morphology and trace-kinetics feature engine, a Li
 
 ---
 
-## 📦 Installation & Setup (Colleague's Computer)
+## 📦 Installation & Setup (Colleague's / Professor's Computer)
 
-To set up and run this project on another computer:
+### 1. Clone the Repository
+Clone the repository to get the code, scripts, and the pre-trained LightGBM model:
+```bash
+git clone git@github.com:AddadyTom/suite2p-classification.git
+cd suite2p-classification
+```
 
-### 1. Create a Virtual Environment
+### 2. Create a Virtual Environment
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-### 2. Install Dependencies
+### 3. Install Dependencies
 ```bash
 pip install numpy scipy scikit-learn lightgbm joblib
 ```
 
 ---
 
-## 💻 How to Use the Explainer Dashboard
+## 📂 Model & Data Locations
 
-To launch the dashboard loading a local Suite2p session (e.g. `plane0` containing `F.npy`, `Fneu.npy`, `stat.npy`, `iscell.npy`):
+### Where is the trained model located?
+* **No action required**: The trained classifier and feature metadata are **pre-packaged inside the repository** under:
+  - Model Binary: `models/regular/suite2p_best_lgb.pkl`
+  - Model Metadata: `models/regular/suite2p_best_lgb.json`
+* When running the code, the scripts automatically detect and load the model from this folder relative to the repository root.
+
+### Where should I put my imaging data?
+* **Anywhere on your computer**: You do not need to move your data inside the repository.
+* The imaging folder must be a standard Suite2p plane output directory (e.g. `plane0`) containing:
+  - `stat.npy`, `F.npy`, `Fneu.npy`, and `iscell.npy` (or a ground truth manual/final labels file).
+* Simply pass the absolute path to your folder when running the scripts (see below).
+
+---
+
+## 💻 How to Run the Explainer Dashboard
+
+To launch the interactive dashboard on a local Suite2p folder:
 
 ```bash
-PYTHONPATH=. .venv/bin/python investigate_cell.py --port 5000 --session /path/to/suite2p/plane0
+PYTHONPATH=. .venv/bin/python investigate_cell.py --port 5000 --session /path/to/your/suite2p/plane0
 ```
 
 1. Open your browser and navigate to `http://localhost:5000`.
 2. Inspect individual cells, view their SHAP contribution breakdown, check classification statistics, or type custom formula expressions in the playground.
+
+---
+
+## ⚙️ Running Automated Inference (Command Line)
+
+If you want to run the classifier and apply predictions directly to the `iscell.npy` file without launching the web interface:
+
+```bash
+python apply_AI.py /path/to/your/suite2p/plane0 regular
+```
+
+* **What it does**: 
+  1. Backs up the original `iscell.npy` file.
+  2. Extracts the 30 active features.
+  3. Applies the F1-optimized decision threshold.
+  4. Runs Non-Maximum Suppression (NMS) to prune overlapping ROIs.
+  5. Overwrites `iscell.npy` with the predicted classifications (0/1) and exact probability scores.
 
 ---
 
