@@ -62,6 +62,16 @@ def extract_features_dataset(sessions, active_features, session_callback=None):
         # Create a dynamic evaluation context/cache for this session
         eval_cache = session.copy()
         
+        # Force recalculation of trace-based active features to ensure session-level normalization
+        TRACE_FEATURES = {
+            'skew_f', 'std_f', 'skew_fneu', 'corr_f_fneu', 'skew_fcorr', 'std_fcorr',
+            'q10', 'q25', 'q50', 'q75', 'q90', 'q95', 'q99',
+            'range_fcorr', 'range_f', 'skew_diff_fcorr', 'snr', 'peak_to_q95_ratio', 'peak_to_q99_ratio'
+        }
+        for feat in active_features:
+            if feat in eval_cache and feat in TRACE_FEATURES:
+                del eval_cache[feat]
+                
         session_features = []
         for name in active_features:
             if name not in FEATURE_REGISTRY:
@@ -95,8 +105,15 @@ def extract_features_dataset(sessions, active_features, session_callback=None):
         # Clean up loaded trace arrays immediately to save memory
         if 'F' in eval_cache:
             del eval_cache['F']
+        if 'Fneu' in eval_cache:
             del eval_cache['Fneu']
-            gc.collect()
+        if '_fcorr' in eval_cache:
+            del eval_cache['_fcorr']
+        if '_quantiles_map' in eval_cache:
+            del eval_cache['_quantiles_map']
+        if '_session_scale' in eval_cache:
+            del eval_cache['_session_scale']
+        gc.collect()
         
     X = np.vstack(X_list)
     y = np.concatenate(y_list)

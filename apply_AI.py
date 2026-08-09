@@ -110,6 +110,12 @@ def extract_features(F, Fneu, stat, num_features_or_names, custom_features=None)
     # 2. Precompute trace signals
     F_corr = F - 0.7 * Fneu
     
+    # Calculate session-level standard deviation scale
+    std_fcorr_all_temp = np.std(F_corr, axis=1)
+    session_scale = np.median(std_fcorr_all_temp)
+    if np.isnan(session_scale) or session_scale <= 0:
+        session_scale = 1.0
+    
     std_diff_f = np.std(np.diff(F, axis=1), axis=1)
     std_diff_f[std_diff_f <= 0] = 1e-6
     std_diff_fcorr = np.std(np.diff(F_corr, axis=1), axis=1)
@@ -131,7 +137,7 @@ def extract_features(F, Fneu, stat, num_features_or_names, custom_features=None)
                 q_pcts.append(pct)
                 
         # Compute all needed percentiles across axis=1
-        q_vals = np.percentile(F_corr, q_pcts, axis=1) # shape (len(q_pcts), n_cells)
+        q_vals = np.percentile(F_corr, q_pcts, axis=1) / session_scale # shape (len(q_pcts), n_cells)
         if len(q_pcts) == 1:
             q_vals = q_vals.reshape(1, -1)
             
@@ -231,18 +237,18 @@ def extract_features(F, Fneu, stat, num_features_or_names, custom_features=None)
     # 10. Precompute std values
     std_f_arr = None
     if 'std_f' in feature_names:
-        std_f_arr = np.std(F, axis=1)
+        std_f_arr = np.std(F, axis=1) / session_scale
     std_fcorr_arr = None
     if 'std_fcorr' in feature_names:
-        std_fcorr_arr = np.std(F_corr, axis=1)
+        std_fcorr_arr = np.std(F_corr, axis=1) / session_scale
 
     # 11. Precompute range values
     range_f_arr = None
     if 'range_f' in feature_names:
-        range_f_arr = np.max(F, axis=1) - np.min(F, axis=1)
+        range_f_arr = (np.max(F, axis=1) - np.min(F, axis=1)) / session_scale
     range_fcorr_arr = None
     if 'range_fcorr' in feature_names:
-        range_fcorr_arr = np.max(F_corr, axis=1) - np.min(F_corr, axis=1)
+        range_fcorr_arr = (np.max(F_corr, axis=1) - np.min(F_corr, axis=1)) / session_scale
 
     # 12. Build output feature matrix X
     X = np.zeros((n_cells, len(feature_names)))
@@ -571,7 +577,7 @@ def apply_active_learning(session_path, model_spec='regular'):
     elif num_features in (26, 38):
         threshold = 0.69
     elif num_features == 27:
-        threshold = 0.58
+        threshold = 0.66
     elif num_features == 30:
         threshold = 0.61
     else:

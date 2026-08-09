@@ -27,6 +27,9 @@ def train_and_save():
         if 'yael' in name or 'yael' in path:
             print(f" Skipping Yael session: {s.get('session_name')}")
             continue
+        if 'stav22' in name or 'stav22' in path:
+            print(f" Skipping Stav22 session (held out for validation): {s.get('session_name')}")
+            continue
         stav_sessions.append(s)
         
     print(f"\nFiltered training set: {len(stav_sessions)} Stav sessions (excluded Yael sessions).")

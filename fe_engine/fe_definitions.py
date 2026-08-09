@@ -11,6 +11,16 @@ def _get_fcorr(cache):
         cache['_fcorr'] = cache['F'] - np.float32(0.7) * cache['Fneu']
     return cache['_fcorr']
 
+def _get_session_scale(cache):
+    if '_session_scale' not in cache:
+        F_corr = _get_fcorr(cache)
+        std_fcorr = np.std(F_corr, axis=1)
+        scale = np.median(std_fcorr)
+        if np.isnan(scale) or scale <= 0:
+            scale = 1.0
+        cache['_session_scale'] = scale
+    return cache['_session_scale']
+
 def get_npix(cache): return cache['npix']
 def get_solidity(cache): return cache['solidity']
 def get_mrs(cache): return cache['mrs']
@@ -33,7 +43,7 @@ def get_skew_f(cache):
     return scipy.stats.skew(cache['F'], axis=1)
 
 def get_std_f(cache):
-    return np.std(cache['F'], axis=1)
+    return np.std(cache['F'], axis=1) / _get_session_scale(cache)
 
 def get_max_to_mean_f(cache):
     F = cache['F']
@@ -66,17 +76,16 @@ def get_skew_fcorr(cache):
 
 def get_std_fcorr(cache):
     F_corr = _get_fcorr(cache)
-    return np.std(F_corr, axis=1)
+    return np.std(F_corr, axis=1) / _get_session_scale(cache)
 
 # Helper to get quantiles
 def _get_quantile(cache, q_pct):
-    if '_sorted_Fcorr' not in cache:
+    if '_quantiles_map' not in cache:
         F_corr = _get_fcorr(cache)
-        cache['_sorted_Fcorr'] = np.sort(F_corr, axis=1)
-    sorted_F = cache['_sorted_Fcorr']
-    n_frames = sorted_F.shape[1]
-    idx = int(q_pct / 100.0 * (n_frames - 1))
-    return sorted_F[:, idx]
+        pcts = [10, 25, 50, 75, 90, 95, 99]
+        q_vals = np.percentile(F_corr, pcts, axis=1)  # shape (7, n_cells)
+        cache['_quantiles_map'] = {p: q_vals[idx] for idx, p in enumerate(pcts)}
+    return cache['_quantiles_map'][q_pct] / _get_session_scale(cache)
 
 def get_q10(cache): return _get_quantile(cache, 10)
 def get_q25(cache): return _get_quantile(cache, 25)
@@ -92,11 +101,11 @@ def get_max_width(cache): return cache['max_width']
 
 def get_range_fcorr(cache):
     F_corr = _get_fcorr(cache)
-    return np.max(F_corr, axis=1) - np.min(F_corr, axis=1)
+    return (np.max(F_corr, axis=1) - np.min(F_corr, axis=1)) / _get_session_scale(cache)
 
 def get_range_f(cache):
     F = cache['F']
-    return np.max(F, axis=1) - np.min(F, axis=1)
+    return (np.max(F, axis=1) - np.min(F, axis=1)) / _get_session_scale(cache)
 
 def get_snr(cache):
     F_corr = _get_fcorr(cache)
