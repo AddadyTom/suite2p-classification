@@ -37,15 +37,12 @@ python apply_AI.py /path/to/suite2p/plane0 [model_preset_or_path]
 * **`[model_preset_or_path]`** (Optional, default: `regular`): Choose a pre-trained model preset or provide an absolute path to a custom model `.pkl` file.
 
 #### Presets Available:
-* **`regular`** (Recommended default): LightGBM model utilizing continuous spatial rank index (24 features).
-* **`noidx`**: LightGBM model utilizing pure biological features without index (Option A, 26 features).
+* **`regular`** (Recommended default): LightGBM model utilizing continuous spatial rank index (25 features).
 
 ### What it does:
 1. Creates a backup of your original `iscell.npy` as `iscell_backup_before_AI.npy` (if not already present).
-2. Auto-detects the model's feature length (24 or 26) and extracts the matching features.
-3. Automatically applies the F1-maximizing fixed decision threshold:
-   - **Regular (24 features)**: `0.66`
-   - **No Index (26 features)**: `0.69`
+2. Auto-detects the model's feature length and extracts matching features.
+3. Automatically applies the F1-maximizing decision threshold.
 4. Runs Non-Maximum Suppression (NMS) to prune overlapping duplicate ROIs.
 5. Overwrites `iscell.npy` with the predicted classifications (0/1) and exact model probability scores.
 

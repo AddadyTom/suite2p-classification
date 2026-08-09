@@ -90,13 +90,7 @@ def process_sessions(source_dir, output_dir, preset='regular'):
         return
         
     # Select feature config based on preset
-    if preset == 'noidx':
-        feature_names = FEATURE_NAMES_27
-        cache_suffix = '27features_v2'
-        x_name = 'X_dataset_noidx.npy'
-        y_name = 'y_dataset_noidx.npy'
-        groups_name = 'groups_dataset_noidx.npy'
-    elif preset == 'rich':
+    if preset == 'rich':
         feature_names = FEATURE_NAMES_38
         cache_suffix = '38features'
         x_name = 'X_dataset_rich.npy'
@@ -149,7 +143,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Prepare Suite2p Cell Prediction Dataset")
     parser.add_argument('--source', type=str, default="/mnt/other_ubunthu/mnt/data", help="Directory containing Suite2p session folders")
     parser.add_argument('--output', type=str, default=".", help="Directory to save compiled .npy arrays")
-    parser.add_argument('--preset', type=str, choices=['regular', 'noidx', 'rich'], default="regular", help="Feature set preset ('regular' = 25 features, 'noidx' = 27 features, 'rich' = 38 features)")
+    parser.add_argument('--preset', type=str, choices=['regular', 'rich'], default="regular", help="Feature set preset ('regular' = 25 features, 'rich' = 38 features)")
     args = parser.parse_args()
     
     process_sessions(args.source, args.output, args.preset)

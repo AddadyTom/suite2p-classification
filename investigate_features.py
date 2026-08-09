@@ -21,11 +21,7 @@ def analyze_features(data_path_str, source_path_str, preset='regular'):
     source_path = Path(source_path_str) if source_path_str else None
 
     # 1. Load compiled dataset
-    if preset == 'noidx':
-        x_name = 'X_dataset_noidx.npy'
-        y_name = 'y_dataset_noidx.npy'
-        groups_name = 'groups_dataset_noidx.npy'
-    elif preset == 'rich':
+    if preset == 'rich':
         x_name = 'X_dataset_rich.npy'
         y_name = 'y_dataset_rich.npy'
         groups_name = 'groups_dataset_rich.npy'
@@ -275,7 +271,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Iterative Feature Investigation Tool (SHAP-Driven)")
     parser.add_argument('--data', type=str, default=".", help="Directory containing compiled dataset .npy files")
     parser.add_argument('--source', type=str, default="/mnt/other_ubunthu/mnt/data", help="Raw dataset root directory for session folders mapping")
-    parser.add_argument('--preset', type=str, choices=['regular', 'noidx', 'rich'], default="regular", help="Feature set preset ('regular', 'noidx', or 'rich')")
+    parser.add_argument('--preset', type=str, choices=['regular', 'rich'], default="regular", help="Feature set preset ('regular' or 'rich')")
     args = parser.parse_args()
 
     analyze_features(args.data, args.source, args.preset)
