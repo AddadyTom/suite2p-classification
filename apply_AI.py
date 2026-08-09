@@ -346,6 +346,19 @@ def extract_features(F, Fneu, stat, num_features_or_names, custom_features=None)
             X[:, col_idx] = activity_ratio_arr
         elif name == 'peak_density':
             X[:, col_idx] = peak_density_arr
+        elif name == 'area_to_radius_sq':
+            X[:, col_idx] = npix_vals / np.maximum(radius_vals ** 2, 1e-6)
+        elif name == 'bright_pixels_to_radius_sq':
+            X[:, col_idx] = bright_pix / np.maximum(radius_vals ** 2, 1e-6)
+        elif name == 'peak_to_q95_ratio':
+            q95 = q_map.get('q95', np.percentile(F_corr, 95, axis=1))
+            X[:, col_idx] = np.max(F_corr, axis=1) / np.maximum(q95, 1e-6)
+        elif name == 'peak_to_q99_ratio':
+            q99 = q_map.get('q99', np.percentile(F_corr, 99, axis=1))
+            X[:, col_idx] = np.max(F_corr, axis=1) / np.maximum(q99, 1e-6)
+        elif name == 'skew_diff_fcorr':
+            diff_fcorr = np.diff(F_corr, axis=1)
+            X[:, col_idx] = skew(diff_fcorr, axis=1)
             
         # Explicitly Normalized Features for rich sets
         elif name == 'std_f_norm':
