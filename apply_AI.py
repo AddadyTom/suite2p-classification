@@ -34,11 +34,13 @@ FEATURE_NAMES_26 = [
 ]
 
 FEATURE_NAMES_27 = [
-    'number_of_bright_pixels', 'bright_pixels_ratio', 'solidity', 'mrs',
-    'skew_f', 'std_f', 'max_to_mean_f', 'cv_f', 'skew_fneu', 'corr_f_fneu',
-    'skew_fcorr', 'std_fcorr', 'q10', 'q25', 'q50', 'q75', 'q90', 'q95', 'q99',
-    'avg_asym', 'max_asym', 'max_width', 'range_fcorr', 'range_f',
-    'snr', 'activity_ratio', 'peak_density'
+    'area_to_radius_sq', 'aspect_ratio', 'bright_pixels_to_radius_sq', 'compact',
+    'corr_f_fneu', 'max_width', 'mrs',
+    'number_of_bright_pixels', 'peak_to_q95_ratio', 'peak_to_q99_ratio',
+    'q10', 'q25', 'q50', 'q75', 'q90', 'q95', 'q99',
+    'radius', 'range_f', 'range_fcorr', 'skew_diff_fcorr',
+    'skew_f', 'skew_fcorr', 'skew_fneu', 'solidity',
+    'std_f', 'std_fcorr'
 ]
 
 FEATURE_NAMES_38 = [
@@ -566,8 +568,10 @@ def apply_active_learning(session_path, model_spec='regular'):
     # Select optimal decision threshold based on feature layout (24, 25, 26, 27, 30 or 38)
     if num_features in (24, 25):
         threshold = 0.66
-    elif num_features in (26, 27, 38):
+    elif num_features in (26, 38):
         threshold = 0.69
+    elif num_features == 27:
+        threshold = 0.58
     elif num_features == 30:
         threshold = 0.61
     else:

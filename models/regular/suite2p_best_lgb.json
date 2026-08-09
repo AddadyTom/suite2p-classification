@@ -5,10 +5,8 @@
         "bright_pixels_to_radius_sq",
         "compact",
         "corr_f_fneu",
-        "cv_f",
         "max_width",
         "mrs",
-        "npix",
         "number_of_bright_pixels",
         "peak_to_q95_ratio",
         "peak_to_q99_ratio",
@@ -26,7 +24,6 @@
         "skew_f",
         "skew_fcorr",
         "skew_fneu",
-        "snr",
         "solidity",
         "std_f",
         "std_fcorr"
