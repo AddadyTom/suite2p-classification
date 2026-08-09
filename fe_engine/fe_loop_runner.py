@@ -121,6 +121,7 @@ def run_cross_validation(X, y, groups, feature_names, progress_callback=None):
     precisions = []
     recalls = []
     f1s = []
+    thresholds = []
     
     for fold, (train_idx, val_idx) in enumerate(splits):
         if progress_callback:
@@ -165,6 +166,7 @@ def run_cross_validation(X, y, groups, feature_names, progress_callback=None):
                 best_f1 = f1
                 best_thresh = thresh
                 
+        thresholds.append(best_thresh)
         y_pred = (y_prob >= best_thresh).astype(int)
         
         # Collect results
@@ -198,6 +200,7 @@ def run_cross_validation(X, y, groups, feature_names, progress_callback=None):
         'precision_std': float(np.std(precisions)),
         'recall_std': float(np.std(recalls)),
         'f1_std': float(np.std(f1s)),
+        'threshold': float(np.mean(thresholds)),
     }
     
     return cv_summary, all_y_true, all_y_pred, all_y_prob, all_shap_values

@@ -239,7 +239,7 @@
                     </div>
 
                     <!-- Metrics Grid -->
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6" id="metrics-cards-container">
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-6" id="metrics-cards-container">
                         <!-- F1 Card -->
                         <div class="bg-brand-darkBg/60 border border-brand-border/60 rounded-2xl p-5 flex flex-col justify-between">
                             <div class="text-xs text-gray-400 font-semibold uppercase tracking-wide">F1-Score</div>
@@ -268,6 +268,16 @@
                                 <div class="text-xs font-bold" id="recall-diff"></div>
                             </div>
                             <div class="text-[10px] text-gray-500 mt-1" id="recall-std">-</div>
+                        </div>
+
+                        <!-- Threshold Card -->
+                        <div class="bg-brand-darkBg/60 border border-brand-border/60 rounded-2xl p-5 flex flex-col justify-between">
+                            <div class="text-xs text-gray-400 font-semibold uppercase tracking-wide">Determined Threshold</div>
+                            <div class="flex items-baseline justify-between mt-2">
+                                <div class="text-4xl font-extrabold text-white" id="thresh-val">-</div>
+                                <div class="text-xs font-semibold text-gray-400" id="thresh-diff">Optimal</div>
+                            </div>
+                            <div class="text-[10px] text-gray-500 mt-1" id="thresh-std">Mean CV Threshold</div>
                         </div>
                     </div>
                 </div>
@@ -1618,6 +1628,12 @@
                 renderMetricCard('precision', data.cv_summary.precision, data.cv_summary.precision_std, baselineSummary ? baselineSummary.precision : null);
                 renderMetricCard('recall', data.cv_summary.recall, data.cv_summary.recall_std, baselineSummary ? baselineSummary.recall : null);
 
+                // Render threshold
+                const threshValEl = document.getElementById('thresh-val');
+                if (threshValEl && data.cv_summary.threshold !== undefined) {
+                    threshValEl.textContent = data.cv_summary.threshold.toFixed(2);
+                }
+
                 // Enable buttons
                 document.getElementById('baseline-btn').removeAttribute('disabled');
                 document.getElementById('retrain-btn').removeAttribute('disabled');
@@ -1861,10 +1877,8 @@
             const allZeroGT = gt.every(x => x === 0);
             const useGTColors = !allZeroGT;
 
-            let tp_x = [], tp_y = [], tp_text = [];
-            let fp_x = [], fp_y = [], fp_text = [];
-            let tn_x = [], tn_y = [], tn_text = [];
-            let fn_x = [], fn_y = [], fn_text = [];
+            let gt_cell_x = [], gt_cell_y = [], gt_cell_text = [];
+            let gt_noncell_x = [], gt_noncell_y = [], gt_noncell_text = [];
 
             let pred_cell_x = [], pred_cell_y = [], pred_cell_text = [];
             let pred_noise_x = [], pred_noise_y = [], pred_noise_text = [];
@@ -1877,22 +1891,14 @@
                 const textLabel = `ROI ${i}<br>Prob: ${(p * 100).toFixed(1)}%<br>GT: ${useGTColors ? (g === 1 ? 'Cell' : 'Non-Cell') : 'N/A'}`;
 
                 if (useGTColors) {
-                    if (pred === 1 && g === 1) {
-                        tp_x.push(i);
-                        tp_y.push(p);
-                        tp_text.push(textLabel);
-                    } else if (pred === 1 && g === 0) {
-                        fp_x.push(i);
-                        fp_y.push(p);
-                        fp_text.push(textLabel);
-                    } else if (pred === 0 && g === 0) {
-                        tn_x.push(i);
-                        tn_y.push(p);
-                        tn_text.push(textLabel);
-                    } else if (pred === 0 && g === 1) {
-                        fn_x.push(i);
-                        fn_y.push(p);
-                        fn_text.push(textLabel);
+                    if (g === 1) {
+                        gt_cell_x.push(i);
+                        gt_cell_y.push(p);
+                        gt_cell_text.push(textLabel);
+                    } else {
+                        gt_noncell_x.push(i);
+                        gt_noncell_y.push(p);
+                        gt_noncell_text.push(textLabel);
                     }
                 } else {
                     if (pred === 1) {
@@ -1911,27 +1917,15 @@
 
             if (useGTColors) {
                 scatterTraces.push({
-                    x: tp_x, y: tp_y, text: tp_text,
-                    name: 'True Positives', type: 'scatter', mode: 'markers',
+                    x: gt_cell_x, y: gt_cell_y, text: gt_cell_text,
+                    name: 'Ground Truth: Cell', type: 'scatter', mode: 'markers',
                     marker: { color: '#10b981', size: 6, opacity: 0.8 },
                     hoverinfo: 'text'
                 });
                 scatterTraces.push({
-                    x: fp_x, y: fp_y, text: fp_text,
-                    name: 'False Positives', type: 'scatter', mode: 'markers',
-                    marker: { color: '#f43f5e', size: 6, opacity: 0.8 },
-                    hoverinfo: 'text'
-                });
-                scatterTraces.push({
-                    x: fn_x, y: fn_y, text: fn_text,
-                    name: 'False Negatives', type: 'scatter', mode: 'markers',
-                    marker: { color: '#f59e0b', size: 6, opacity: 0.8 },
-                    hoverinfo: 'text'
-                });
-                scatterTraces.push({
-                    x: tn_x, y: tn_y, text: tn_text,
-                    name: 'True Negatives', type: 'scatter', mode: 'markers',
-                    marker: { color: '#64748b', size: 5, opacity: 0.4 },
+                    x: gt_noncell_x, y: gt_noncell_y, text: gt_noncell_text,
+                    name: 'Ground Truth: Non-Cell', type: 'scatter', mode: 'markers',
+                    marker: { color: '#f43f5e', size: 5, opacity: 0.5 },
                     hoverinfo: 'text'
                 });
             } else {
