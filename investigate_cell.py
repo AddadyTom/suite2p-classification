@@ -5,10 +5,12 @@ import joblib
 import numpy as np
 import urllib.parse
 from pathlib import Path
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from scipy.stats import skew
 from scipy.signal import find_peaks, peak_widths
 import webbrowser
+import threading
+from fe_engine.fe_definitions import FEATURE_REGISTRY
 
 # ==========================================
 # 1. MASTER FEATURE DEFINITIONS & PRESETS
@@ -274,6 +276,26 @@ def extract_features_single(F_row, Fneu_row, spks_row, stat_entry, roi_idx, n_ro
                 peaks, _ = find_peaks(f_corr, height=np.mean(f_corr) + 2*np.std(f_corr), distance=10)
                 row.append(float(len(peaks) / len(f_corr)) if len(f_corr) > 0 else 0.0)
                 
+            elif name in FEATURE_REGISTRY:
+                cache = {
+                    'stat': stat_cell,
+                    'F': f[None, :],
+                    'Fneu': fneu[None, :],
+                    '_fcorr': f_corr[None, :],
+                    'npix': np.array([stat_cell['npix']]),
+                    'solidity': np.array([stat_cell.get('solidity', 1.0)]),
+                    'mrs': np.array([stat_cell.get('mrs', 0.0)]),
+                    'compact': np.array([stat_cell.get('compact', 1.0)]),
+                    'aspect_ratio': np.array([stat_cell.get('aspect_ratio', 1.0)]),
+                    'radius': np.array([stat_cell.get('radius', 1.0)]),
+                    'number_of_bright_pixels': np.array([np.sum(stat_cell['lam'] > 0.1 * np.max(stat_cell['lam'])) if 'lam' in stat_cell else 1]),
+                    'bright_pixels_ratio': np.array([np.sum(stat_cell['lam'] > 0.1 * np.max(stat_cell['lam'])) / max(stat_cell['npix'], 1) if 'lam' in stat_cell else 1.0]),
+                    'avg_asym': np.array([avg_asym if avg_asym is not None else 1.0]),
+                    'max_asym': np.array([max_asym if max_asym is not None else 1.0]),
+                    'max_width': np.array([max_width if max_width is not None else 0.0]),
+                }
+                val = FEATURE_REGISTRY[name](cache)
+                row.append(float(val[0]))
             else:
                 print(f"Warning: Unknown feature name '{name}'. Defaulting to 0.0.")
                 row.append(0.0)
@@ -522,6 +544,339 @@ def extract_features_single(F_row, Fneu_row, spks_row, stat_entry, roi_idx, n_ro
     else:
         raise ValueError(f"Unsupported number of features: {num_features}")
 
+def extract_features_vectorized(F, Fneu, spks, stat, feature_names, custom_features=None):
+    n_cells = F.shape[0]
+    
+    # 1. Resolve feature names
+    feature_names = list(feature_names)
+    print(f"Extracting {len(feature_names)} features dynamically using vectorized operations for {n_cells} ROIs...")
+    
+    # 2. Precompute trace signals
+    F_corr = F - 0.7 * Fneu
+    
+    std_diff_f = np.std(np.diff(F, axis=1), axis=1)
+    std_diff_f[std_diff_f <= 0] = 1e-6
+    std_diff_fcorr = np.std(np.diff(F_corr, axis=1), axis=1)
+    std_diff_fcorr[std_diff_fcorr <= 0] = 1e-6
+
+    # 4. Precompute all quantiles at once if requested
+    q_names = [name for name in feature_names if name.startswith('q') and (name[1:].isdigit() or (name.endswith('_norm') and name[1:-5].isdigit()))]
+    
+    q_map = {}
+    if q_names:
+        # Extract unique percentiles to compute
+        q_pcts = []
+        for name in q_names:
+            if name.endswith('_norm'):
+                pct = float(name[1:-5])
+            else:
+                pct = float(name[1:])
+            if pct not in q_pcts:
+                q_pcts.append(pct)
+                
+        # Compute all needed percentiles across axis=1
+        q_vals = np.percentile(F_corr, q_pcts, axis=1) # shape (len(q_pcts), n_cells)
+        if len(q_pcts) == 1:
+            q_vals = q_vals.reshape(1, -1)
+            
+        medians = np.median(F_corr, axis=1)
+        
+        # Build mapping of percentile to values
+        pct_to_val = {pct: q_vals[idx] for idx, pct in enumerate(q_pcts)}
+        
+        for name in q_names:
+            if name.endswith('_norm'):
+                pct = float(name[1:-5])
+                val = pct_to_val[pct]
+                if pct == 50:
+                    val = medians / std_diff_fcorr
+                else:
+                    val = (val - medians) / std_diff_fcorr
+            else:
+                pct = float(name[1:])
+                val = pct_to_val[pct]
+            q_map[name] = val
+
+    # 5. Precompute peak-finding features if requested
+    need_peaks = any(name in feature_names for name in ('avg_asym', 'max_asym', 'max_width', 'peak_density'))
+    avg_asym_arr = np.ones(n_cells)
+    max_asym_arr = np.ones(n_cells)
+    max_width_arr = np.zeros(n_cells)
+    peak_density_arr = np.zeros(n_cells)
+    
+    if need_peaks:
+        mean_fcorr = np.mean(F_corr, axis=1)
+        std_fcorr = np.std(F_corr, axis=1)
+        
+        for i in range(n_cells):
+            f = F_corr[i]
+            peaks, _ = find_peaks(f, height=mean_fcorr[i] + 2.0 * std_fcorr[i], distance=10)
+            peak_density_arr[i] = len(peaks) / len(f) if len(f) > 0 else 0.0
+            
+            if len(peaks) == 0:
+                avg_asym_arr[i] = 1.0
+                max_asym_arr[i] = 1.0
+                max_width_arr[i] = 0.0
+            else:
+                widths, _, left_ips, right_ips = peak_widths(f, peaks, rel_height=0.5)
+                left_widths = peaks - left_ips
+                right_widths = right_ips - peaks
+                left_widths[left_widths < 0.1] = 0.1
+                
+                asymmetry_ratios = right_widths / left_widths
+                avg_asym_arr[i] = np.mean(asymmetry_ratios)
+                max_asym_arr[i] = np.max(asymmetry_ratios)
+                max_width_arr[i] = np.max(widths)
+
+    # 6. Precompute activity ratio
+    activity_ratio_arr = np.zeros(n_cells)
+    if 'activity_ratio' in feature_names:
+        medians = np.median(F_corr, axis=1)
+        for i in range(n_cells):
+            f = F_corr[i]
+            med = medians[i]
+            above = f[f > med]
+            below = f[f <= med]
+            std_above = np.std(above) if len(above) > 0 else 0.0
+            std_below = np.std(below) if len(below) > 0 else 0.0
+            activity_ratio_arr[i] = std_above / std_below if std_below > 0 else 0.0
+
+    # 7. Precompute SNR
+    snr_arr = np.zeros(n_cells)
+    if 'snr' in feature_names:
+        std_fcorr_all = np.std(F_corr, axis=1)
+        diff_fcorr_all = np.diff(F_corr, axis=1)
+        std_diff_fcorr_all = np.std(diff_fcorr_all, axis=1)
+        std_diff_fcorr_all[std_diff_fcorr_all <= 0] = 1e-6
+        snr_arr = std_fcorr_all / std_diff_fcorr_all
+
+    # 8. Precompute correlation
+    corr_f_fneu_arr = np.zeros(n_cells)
+    if 'corr_f_fneu' in feature_names:
+        mean_F = np.mean(F, axis=1, keepdims=True)
+        mean_Fneu = np.mean(Fneu, axis=1, keepdims=True)
+        cov = np.mean((F - mean_F) * (Fneu - mean_Fneu), axis=1)
+        std_F = np.std(F, axis=1)
+        std_Fneu = np.std(Fneu, axis=1)
+        valid = (std_F > 0) & (std_Fneu > 0)
+        corr_f_fneu_arr[valid] = cov[valid] / (std_F[valid] * std_Fneu[valid] + 1e-10)
+
+    # 9. Precompute skewness
+    skew_f_arr = None
+    if 'skew_f' in feature_names:
+        skew_f_arr = skew(F, axis=1)
+    skew_fneu_arr = None
+    if 'skew_fneu' in feature_names:
+        skew_fneu_arr = skew(Fneu, axis=1)
+    skew_fcorr_arr = None
+    if 'skew_fcorr' in feature_names:
+        skew_fcorr_arr = skew(F_corr, axis=1)
+
+    # 10. Precompute std values
+    std_f_arr = None
+    if 'std_f' in feature_names:
+        std_f_arr = np.std(F, axis=1)
+    std_fcorr_arr = None
+    if 'std_fcorr' in feature_names:
+        std_fcorr_arr = np.std(F_corr, axis=1)
+
+    # 11. Precompute range values
+    range_f_arr = None
+    if 'range_f' in feature_names:
+        range_f_arr = np.max(F, axis=1) - np.min(F, axis=1)
+    range_fcorr_arr = None
+    if 'range_fcorr' in feature_names:
+        range_fcorr_arr = np.max(F_corr, axis=1) - np.min(F_corr, axis=1)
+
+    # 12. Precompute Spikes
+    max_spk_arr = None
+    mean_spk_nz_arr = None
+    spk_rate_arr = None
+    skew_spk_arr = None
+    if spks is not None:
+        if 'max_spk' in feature_names:
+            max_spk_arr = np.max(spks, axis=1)
+        if 'mean_spk_nz' in feature_names:
+            mean_spk_nz_arr = np.zeros(n_cells)
+            for i in range(n_cells):
+                s = spks[i]
+                mask = s > 0
+                mean_spk_nz_arr[i] = np.mean(s[mask]) if np.sum(mask) > 0 else 0.0
+        if 'spk_rate' in feature_names:
+            spk_rate_arr = np.zeros(n_cells)
+            max_spks = np.max(spks, axis=1)
+            for i in range(n_cells):
+                s = spks[i]
+                max_s = max_spks[i]
+                spk_rate_arr[i] = np.count_nonzero(s > 0.01 * max_s) / len(s) if max_s > 0 else 0.0
+        if 'skew_spk' in feature_names:
+            skew_spk_arr = skew(spks, axis=1)
+
+    # 13. Build output feature matrix X
+    X = np.zeros((n_cells, len(feature_names)))
+    
+    # Pre-extract spatial statistics arrays
+    npix_vals = np.array([float(s.get('npix', 0)) for s in stat])
+    solidity_vals = np.array([float(s.get('solidity', 1.0)) for s in stat])
+    mrs_vals = np.array([float(s.get('mrs', 0.0)) for s in stat])
+    skew_spatial_vals = np.array([float(s.get('skew', 0.0)) for s in stat])
+    compact_vals = np.array([float(s.get('compact', 0.0)) for s in stat])
+    aspect_ratio_vals = np.array([float(s.get('aspect_ratio', 1.0)) for s in stat])
+    radius_vals = np.array([float(s.get('radius', 0.0)) for s in stat])
+    
+    # Precalculate bright pixels for spatial feature indexing
+    bright_pix = []
+    for s in stat:
+        lam = s.get('lam', np.zeros(0))
+        max_lam = np.max(lam) if len(lam) > 0 else 0.0
+        bright_pix.append(float(np.sum(lam > 0.1 * max_lam)) if max_lam > 0 else 0.0)
+    bright_pix = np.array(bright_pix)
+    
+    ns = {}
+    for col_idx, name in enumerate(feature_names):
+        if custom_features and name in custom_features:
+            continue
+        # Spatial features
+        if name == 'npix':
+            X[:, col_idx] = npix_vals
+        elif name == 'skew_spatial':
+            X[:, col_idx] = skew_spatial_vals
+        elif name == 'compact':
+            X[:, col_idx] = compact_vals
+        elif name == 'aspect_ratio':
+            X[:, col_idx] = aspect_ratio_vals
+        elif name == 'radius':
+            X[:, col_idx] = radius_vals
+        elif name == 'solidity':
+            X[:, col_idx] = solidity_vals
+        elif name == 'mrs':
+            X[:, col_idx] = mrs_vals
+        elif name == 'number_of_bright_pixels':
+            X[:, col_idx] = bright_pix
+        elif name == 'bright_pixels_ratio':
+            X[:, col_idx] = np.where(npix_vals > 0, bright_pix / npix_vals, 0.0)
+            
+        # Index features
+        elif name == 'roi_idx_norm':
+            X[:, col_idx] = np.arange(n_cells) / n_cells if n_cells > 0 else np.zeros(0)
+        elif name == 'roi_idx_norm_3bin':
+            norm_val = np.arange(n_cells) / n_cells if n_cells > 0 else np.zeros(0)
+            X[:, col_idx] = np.digitize(norm_val, [0.1, 0.4])
+        elif name in ('roi_idx_raw', 'roi_idx'):
+            X[:, col_idx] = np.arange(n_cells)
+            
+        # Trace Stats
+        elif name == 'skew_f':
+            X[:, col_idx] = skew_f_arr
+        elif name == 'std_f':
+            X[:, col_idx] = std_f_arr
+        elif name == 'max_f':
+            X[:, col_idx] = np.max(F, axis=1)
+        elif name == 'mean_f':
+            X[:, col_idx] = np.mean(F, axis=1)
+        elif name == 'max_to_mean_f':
+            mean_f = np.mean(F, axis=1)
+            X[:, col_idx] = np.where(mean_f > 0, np.max(F, axis=1) / mean_f, 1.0)
+        elif name == 'cv_f':
+            mean_f = np.mean(F, axis=1)
+            X[:, col_idx] = np.where(mean_f > 0, np.std(F, axis=1) / mean_f, 0.0)
+        elif name == 'skew_fneu':
+            X[:, col_idx] = skew_fneu_arr
+        elif name == 'corr_f_fneu':
+            X[:, col_idx] = corr_f_fneu_arr
+        elif name == 'skew_fcorr':
+            X[:, col_idx] = skew_fcorr_arr
+        elif name == 'std_fcorr':
+            X[:, col_idx] = std_fcorr_arr
+            
+        # Quantiles
+        elif name in q_map:
+            X[:, col_idx] = q_map[name]
+            
+        # Dynamics
+        elif name == 'avg_asym':
+            X[:, col_idx] = avg_asym_arr
+        elif name == 'max_asym':
+            X[:, col_idx] = max_asym_arr
+        elif name == 'max_width':
+            X[:, col_idx] = max_width_arr
+            
+        # Ranges
+        elif name == 'range_fcorr':
+            X[:, col_idx] = range_fcorr_arr
+        elif name == 'range_f':
+            X[:, col_idx] = range_f_arr
+            
+        # Spikes
+        elif name == 'max_spk':
+            X[:, col_idx] = max_spk_arr if max_spk_arr is not None else 0.0
+        elif name == 'mean_spk_nz':
+            X[:, col_idx] = mean_spk_nz_arr if mean_spk_nz_arr is not None else 0.0
+        elif name == 'spk_rate':
+            X[:, col_idx] = spk_rate_arr if spk_rate_arr is not None else 0.0
+        elif name == 'skew_spk':
+            X[:, col_idx] = skew_spk_arr if skew_spk_arr is not None else 0.0
+            
+        # New Biological
+        elif name == 'snr':
+            X[:, col_idx] = snr_arr
+        elif name == 'activity_ratio':
+            X[:, col_idx] = activity_ratio_arr
+        elif name == 'peak_density':
+            X[:, col_idx] = peak_density_arr
+            
+        # Explicitly Normalized Features for rich sets
+        elif name == 'std_f_norm':
+            X[:, col_idx] = np.std(F, axis=1) / std_diff_f
+        elif name == 'std_fcorr_norm':
+            X[:, col_idx] = np.std(F_corr, axis=1) / std_diff_fcorr
+        elif name == 'range_f_norm':
+            X[:, col_idx] = (np.max(F, axis=1) - np.min(F, axis=1)) / std_diff_f
+        elif name == 'range_fcorr_norm':
+            X[:, col_idx] = (np.max(F_corr, axis=1) - np.min(F_corr, axis=1)) / std_diff_fcorr
+            
+        elif name in FEATURE_REGISTRY:
+            cache = {
+                'stat': stat,
+                'F': F,
+                'Fneu': Fneu,
+                '_fcorr': F_corr,
+                'npix': npix_vals,
+                'solidity': solidity_vals,
+                'mrs': mrs_vals,
+                'compact': compact_vals,
+                'aspect_ratio': aspect_ratio_vals,
+                'radius': radius_vals,
+                'number_of_bright_pixels': bright_pix,
+                'bright_pixels_ratio': np.where(npix_vals > 0, bright_pix / npix_vals, 0.0),
+                'avg_asym': avg_asym_arr,
+                'max_asym': max_asym_arr,
+                'max_width': max_width_arr,
+            }
+            X[:, col_idx] = FEATURE_REGISTRY[name](cache)
+            
+        else:
+            print(f"Warning: Unknown feature name '{name}'. Defaulting to 0.0.")
+            X[:, col_idx] = 0.0
+            
+        ns[name] = X[:, col_idx]
+        
+    # Pass 2: Calculate custom features
+    if custom_features:
+        from fe_engine.fe_definitions import safe_eval_formula
+        for col_idx, name in enumerate(feature_names):
+            if name in custom_features:
+                expr = custom_features[name]
+                try:
+                    result = safe_eval_formula(expr, ns)
+                    X[:, col_idx] = result
+                    ns[name] = result
+                except Exception as e:
+                    print(f"Error evaluating custom feature '{name} = {expr}': {e}")
+                    X[:, col_idx] = np.zeros(n_cells)
+            
+    return np.nan_to_num(X)
+
 # ==========================================
 # 3. INTERACTIVE SERVER BACKEND
 # ==========================================
@@ -536,6 +891,7 @@ class SessionState:
         self.num_features = 29
         self.feature_names = FEATURE_NAMES_25
         self.feature_descs = {}
+        self.lock = threading.Lock()
         
         # Extracted data cache
         self.F = None
@@ -547,6 +903,13 @@ class SessionState:
         self.y_probs = None
         self.y_preds = None
         self.iscell_meta = None
+        
+        # Progress tracking for CV evaluation
+        self.cv_progress = {
+            'percent': 0,
+            'status': 'Idle',
+            'active': False
+        }
         
         # Dataset-wide averages for reference
         self.ref_means = None
@@ -605,7 +968,28 @@ class SessionState:
         if feature_names and is_default_names(feature_names):
             feature_names = None
             
-        if not feature_names:
+        # Initialize custom features
+        self.custom_features = {}
+        
+        # Try loading sibling JSON metadata first (precise matching)
+        meta_path = self.model_path.with_suffix('.json')
+        meta_loaded = False
+        if meta_path.exists():
+            try:
+                with open(meta_path, 'r') as f:
+                    meta_data = json.load(f)
+                if isinstance(meta_data, dict):
+                    feats = meta_data.get('active_features') or meta_data.get('features')
+                    if feats:
+                        feature_names = feats
+                        self.num_features = len(feature_names)
+                    self.custom_features = meta_data.get('custom_features', {})
+                    meta_loaded = True
+                    print(f"Loaded feature names and custom formulas from metadata file: {meta_path.name}")
+            except Exception as e:
+                print(f"Warning: Failed to load sibling metadata JSON: {e}")
+
+        if not meta_loaded and not feature_names:
             # Look in model directory for any JSON file describing features
             model_dir = self.model_path.parent
             json_files = list(model_dir.glob("*.json"))
@@ -613,13 +997,23 @@ class SessionState:
                 try:
                     with open(jf, 'r') as f:
                         data = json.load(f)
-                        if isinstance(data, dict) and 'features' in data:
-                            if len(data['features']) == self.num_features:
-                                feature_names = data['features']
+                        if isinstance(data, dict):
+                            feats = data.get('active_features') or data.get('features')
+                            if feats and len(feats) == self.num_features:
+                                feature_names = feats
+                                self.custom_features = data.get('custom_features', {})
+                                meta_loaded = True
                                 print(f"Loaded feature names from metadata file: {jf.name}")
                                 break
                 except:
                     pass
+
+        # Register custom features in FEATURE_REGISTRY so they can be evaluated
+        if self.custom_features:
+            from fe_engine.fe_definitions import safe_eval_formula
+            import fe_engine.fe_definitions
+            for name, expr in self.custom_features.items():
+                fe_engine.fe_definitions.FEATURE_REGISTRY[name] = lambda cache, e=expr: safe_eval_formula(e, cache)
 
         if not feature_names:
             if self.num_features == 25:
@@ -730,12 +1124,12 @@ class SessionState:
         self.session_path = Path(session_path_str)
         print(f"Loading session: {self.session_path}")
         
-        self.F = np.load(self.session_path / 'F.npy')
-        self.Fneu = np.load(self.session_path / 'Fneu.npy')
+        self.F = np.load(self.session_path / 'F.npy', mmap_mode='r')
+        self.Fneu = np.load(self.session_path / 'Fneu.npy', mmap_mode='r')
         self.stat = np.load(self.session_path / 'stat.npy', allow_pickle=True)
         
         spks_path = self.session_path / 'spks.npy'
-        self.spks = np.load(spks_path) if spks_path.exists() else None
+        self.spks = np.load(spks_path, mmap_mode='r') if spks_path.exists() else None
         
         iscell_path = None
         for l in ['iscell_final.npy', 'iscell_manual.npy']:
@@ -764,31 +1158,30 @@ class SessionState:
         if self.X_extracted is not None:
             return
             
-        print("Extracting features for all cells in session...")
-        n_cells = len(self.F)
-        X = []
-        for idx in range(n_cells):
-            x_f = extract_features_single(
-                self.F[idx], self.Fneu[idx], 
-                self.spks[idx] if self.spks is not None else None,
-                self.stat[idx], idx, n_cells, self.feature_names
+        with self.lock:
+            # Double-check inside the lock
+            if self.X_extracted is not None:
+                return
+                
+            print("Extracting features for all cells in session...")
+            n_cells = len(self.F)
+            self.X_extracted = extract_features_vectorized(
+                self.F, self.Fneu, self.spks, self.stat, self.feature_names,
+                custom_features=getattr(self, 'custom_features', None)
             )
-            X.append(x_f)
             
-        self.X_extracted = np.nan_to_num(np.array(X))
-        
-        if self.ref_means is None:
-            self.ref_means = np.mean(self.X_extracted, axis=0)
-            self.ref_cells_means = np.mean(self.X_extracted[self.y_true == 1], axis=0) if np.sum(self.y_true == 1) > 0 else self.ref_means
-            self.ref_noncells_means = np.mean(self.X_extracted[self.y_true == 0], axis=0) if np.sum(self.y_true == 0) > 0 else self.ref_means
-            print("Calculated reference averages from session.")
+            if self.ref_means is None:
+                self.ref_means = np.mean(self.X_extracted, axis=0)
+                self.ref_cells_means = np.mean(self.X_extracted[self.y_true == 1], axis=0) if np.sum(self.y_true == 1) > 0 else self.ref_means
+                self.ref_noncells_means = np.mean(self.X_extracted[self.y_true == 0], axis=0) if np.sum(self.y_true == 0) > 0 else self.ref_means
+                print("Calculated reference averages from session.")
 
-        X_proc = self.X_extracted
-        if self.scaler is not None:
-            X_proc = self.scaler.transform(X_proc)
-            
-        self.y_probs = self.model.predict_proba(X_proc)[:, 1]
-        self.y_preds = (self.y_probs >= 0.5).astype(int)
+            X_proc = self.X_extracted
+            if self.scaler is not None:
+                X_proc = self.scaler.transform(X_proc)
+                
+            self.y_probs = self.model.predict_proba(X_proc)[:, 1]
+            self.y_preds = (self.y_probs >= 0.5).astype(int)
         
     def get_batch_explanations(self, indices):
         if self.X_extracted is None:
@@ -1081,6 +1474,8 @@ class DashHandler(BaseHTTPRequestHandler):
         parsed_url = urllib.parse.urlparse(self.path)
         params = urllib.parse.parse_qs(parsed_url.query)
         path = parsed_url.path
+        if path.endswith('/') and len(path) > 1:
+            path = path[:-1]
         
         if path in ('/', '/index.html'):
             self.send_response(200)
@@ -1437,6 +1832,492 @@ class DashHandler(BaseHTTPRequestHandler):
                 self.send_error_json(str(e))
             return
             
+        elif path == '/playground' or path == '/playground.html':
+            try:
+                self.send_response(200)
+                self.send_header('Content-type', 'text/html; charset=utf-8')
+                self.end_headers()
+                pg_path = Path("/home/tomer/Documents/suite2p-iscell-prediction/playground.html")
+                with open(pg_path, 'r', encoding='utf-8') as f:
+                    html_content = f.read()
+                self.wfile.write(html_content.encode('utf-8'))
+            except Exception as e:
+                self.send_error_json(f"Error loading playground.html: {str(e)}")
+            return
+
+        elif path == '/api/playground/status':
+            try:
+                import fe_engine.fe_definitions
+                importlib = __import__('importlib')
+                importlib.reload(fe_engine.fe_definitions)
+                from fe_engine.fe_definitions import ACTIVE_FEATURES, FEATURE_REGISTRY
+                loaded_feats = getattr(state, 'feature_names', [])
+                if not loaded_feats:
+                    loaded_feats = []
+                available_feats = list(FEATURE_REGISTRY.keys())
+                
+                # Fetch baseline/active model predictions for all cached sessions
+                from fe_engine.fe_loop_runner import load_preprocessed_data
+                workspace_dir = Path("/home/tomer/Documents/suite2p-iscell-prediction")
+                cache_dir = workspace_dir / "preprocessed_cache"
+                sessions = load_preprocessed_data(cache_dir)
+                
+                sessions_list = []
+                y_prob_list = []
+                y_true_list = []
+                y_pred_list = []
+                
+                curr_idx = 0
+                
+                # If active session is loaded in state, add it first!
+                if state.session_path:
+                    state.process_all_cells()
+                    n_rois = len(state.y_true)
+                    sessions_list.append({
+                        'name': f"{state.session_path.name} (Active Session)",
+                        'start_idx': curr_idx,
+                        'end_idx': curr_idx + n_rois,
+                        'total_rois': n_rois
+                    })
+                    y_prob_list.extend(state.y_probs.tolist())
+                    y_true_list.extend(state.y_true.tolist())
+                    y_pred_list.extend(state.y_preds.tolist())
+                    curr_idx += n_rois
+                    
+                # Predict using active model on cached sessions
+                for session in sessions:
+                    s_path_val = session.get('session_path')
+                    if isinstance(s_path_val, np.ndarray):
+                        s_path_val = s_path_val.item()
+                    s_path = Path(s_path_val).resolve() if s_path_val else None
+                    n_rois = len(session['y'])
+                    
+                    sessions_list.append({
+                        'name': f"{s_path.name} (Cached)" if s_path else f"Session {len(sessions_list)+1} (Cached)",
+                        'start_idx': curr_idx,
+                        'end_idx': curr_idx + n_rois,
+                        'total_rois': n_rois
+                    })
+                    
+                    # Extract active model features
+                    feats_to_use = loaded_feats if loaded_feats else ACTIVE_FEATURES
+                    X_sess = np.column_stack([session[feat] for feat in feats_to_use])
+                    
+                    # Apply scaler if present
+                    if state.scaler is not None:
+                        X_sess = state.scaler.transform(X_sess)
+                        
+                    probs = state.model.predict_proba(X_sess)[:, 1]
+                    preds = (probs >= 0.5).astype(int)
+                    
+                    y_prob_list.extend(probs.tolist())
+                    y_true_list.extend(session['y'].tolist())
+                    y_pred_list.extend(preds.tolist())
+                    curr_idx += n_rois
+                
+                res = {
+                    'available_features': sorted(available_feats),
+                    'active_features': ACTIVE_FEATURES,
+                    'loaded_model_features': loaded_feats,
+                    'active_model': str(state.model_path) if state.model_path else 'None',
+                    'active_session': str(state.session_path) if state.session_path else 'None',
+                    'num_features': state.num_features,
+                    'sessions': sessions_list,
+                    'y_prob': y_prob_list,
+                    'y_true': y_true_list,
+                    'y_pred': y_pred_list
+                }
+                self.send_json(res)
+            except Exception as e:
+                self.send_error_json(str(e))
+            return
+
+        elif path == '/api/playground/progress':
+            try:
+                self.send_json(dict(state.cv_progress))
+            except Exception as e:
+                self.send_error_json(str(e))
+            return
+
+        elif path == '/api/playground/run':
+            try:
+                # Reset progress
+                state.cv_progress = {
+                    'percent': 5,
+                    'status': 'Loading cached preprocessed sessions from disk...',
+                    'active': True
+                }
+
+                feats_str = params.get('features', [''])[0]
+                active_feats = [f.strip() for f in feats_str.split(',') if f.strip()]
+                formulas = params.get('formulas', [])
+                
+                from fe_engine.fe_loop_runner import load_preprocessed_data, extract_features_dataset, run_cross_validation, analyze_errors_and_shap
+                from fe_engine.fe_definitions import safe_eval_formula
+                workspace_dir = Path("/home/tomer/Documents/suite2p-iscell-prediction")
+                cache_dir = workspace_dir / "preprocessed_cache"
+                
+                sessions = load_preprocessed_data(cache_dir)
+                
+                # Update progress
+                state.cv_progress['percent'] = 10
+                state.cv_progress['status'] = 'Evaluating custom formulas on sessions...'
+
+                import fe_engine.fe_definitions
+                for formula in formulas:
+                    formula = formula.strip()
+                    if not formula or '=' not in formula:
+                        continue
+                    name, expr = formula.split('=', 1)
+                    name = name.strip()
+                    expr = expr.strip()
+                    for session in sessions:
+                        ns = {key: session[key] for key in session.keys() if isinstance(session[key], np.ndarray) and len(session[key].shape) == 1}
+                        try:
+                            session[name] = safe_eval_formula(expr, ns)
+                        except Exception as eval_exc:
+                            print(f"DEBUG: ns keys = {sorted(list(ns.keys()))}")
+                            raise ValueError(f"Error evaluating custom formula '{name} = {expr}': {str(eval_exc)}")
+                    
+                    # Register custom feature temporarily in registry
+                    fe_engine.fe_definitions.FEATURE_REGISTRY[name] = lambda cache, n=name: cache[n]
+                
+                # Update progress callback for session extraction
+                def session_cb(curr, total, s_name):
+                    state.cv_progress['percent'] = int(15 + (curr / total) * 35)
+                    state.cv_progress['status'] = f"Extracting features ({curr}/{total}): {s_name}"
+                
+                X, y, groups = extract_features_dataset(sessions, active_feats, session_callback=session_cb)
+                
+                # Update progress callback for CV splits
+                def cv_cb(fold, total_folds):
+                    state.cv_progress['percent'] = int(55 + (fold / total_folds) * 30)
+                    state.cv_progress['status'] = f"Running 5-Fold GroupKFold Cross-Validation (fold {fold}/{total_folds})..."
+
+                cv_summary, y_true, y_pred, y_prob, shap_values = run_cross_validation(
+                    X, y, groups, active_feats, progress_callback=cv_cb
+                )
+                
+                state.cv_progress['percent'] = 90
+                state.cv_progress['status'] = 'Analyzing errors and computing SHAP importances...'
+
+                fp_culprits, fn_culprits, importance = analyze_errors_and_shap(X, y_true, y_pred, shap_values, active_feats)
+                
+                baseline = None
+                baseline_path = workspace_dir / "fe_baseline.json"
+                if baseline_path.exists():
+                    try:
+                        with open(baseline_path, 'r') as f:
+                            baseline = json.load(f)
+                    except:
+                        pass
+                
+                # Train final model on 100% of cached dataset using active features
+                n_pos = np.sum(y == 1)
+                n_neg = np.sum(y == 0)
+                scale_pos_weight = n_neg / n_pos if n_pos > 0 else 1.0
+                
+                import lightgbm as lgb
+                final_model = lgb.LGBMClassifier(
+                    n_estimators=200,
+                    learning_rate=0.05,
+                    max_depth=8,
+                    num_leaves=63,
+                    scale_pos_weight=scale_pos_weight,
+                    subsample=0.8,
+                    colsample_bytree=0.8,
+                    random_state=42,
+                    n_jobs=-1,
+                    verbosity=-1
+                )
+                final_model.fit(X, y)
+                
+                y_prob_active = None
+                y_pred_active = None
+                y_true_active = None
+                
+                if state.session_path:
+                    # Construct active session dict for dynamic feature extraction
+                    active_sess = {
+                        'y': state.y_true,
+                        'session_name': state.session_path.name,
+                        'session_path': str(state.session_path),
+                        'F': state.F,
+                        'Fneu': state.Fneu,
+                        'spks': state.spks,
+                        'stat': state.stat
+                    }
+                    
+                    # Compute all standard features dynamically using the registry
+                    from fe_engine.fe_definitions import FEATURE_REGISTRY
+                    custom_names = [f.split('=', 1)[0].strip() for f in formulas if '=' in f]
+                    for feat in list(FEATURE_REGISTRY.keys()):
+                        if feat in custom_names:
+                            continue
+                        try:
+                            active_sess[feat] = FEATURE_REGISTRY[feat](active_sess)
+                        except Exception as feat_exc:
+                            active_sess[feat] = np.zeros(len(state.y_true))
+                                
+                    # Evaluate custom formulas
+                    for formula in formulas:
+                        formula = formula.strip()
+                        if not formula or '=' not in formula:
+                            continue
+                        name, expr = formula.split('=', 1)
+                        name = name.strip()
+                        expr = expr.strip()
+                        ns = {key: active_sess[key] for key in active_sess.keys() if isinstance(active_sess[key], np.ndarray) and len(active_sess[key].shape) == 1}
+                        try:
+                            active_sess[name] = safe_eval_formula(expr, ns)
+                        except Exception as eval_exc:
+                            raise ValueError(f"Error evaluating custom formula '{name} = {expr}': {str(eval_exc)}")
+                            
+                    # Construct feature matrix X_active
+                    X_active = np.column_stack([active_sess[feat] for feat in active_feats])
+                    y_true_active = state.y_true
+                    
+                    y_prob_active = final_model.predict_proba(X_active)[:, 1]
+                    y_pred_active = (y_prob_active >= 0.5).astype(int)
+                
+                combined_y_prob = []
+                combined_y_true = []
+                combined_y_pred = []
+                sessions_list = []
+                
+                curr_idx = 0
+                
+                # Add active session first with predicted values from the new model
+                if state.session_path and y_prob_active is not None:
+                    n_rois = len(state.y_true)
+                    sessions_list.append({
+                        'name': f"{state.session_path.name} (Active Session - Predicted)",
+                        'start_idx': curr_idx,
+                        'end_idx': curr_idx + n_rois,
+                        'total_rois': n_rois
+                    })
+                    combined_y_prob.extend(y_prob_active.tolist())
+                    combined_y_true.extend(y_true_active.tolist())
+                    combined_y_pred.extend(y_pred_active.tolist())
+                    curr_idx += n_rois
+                    
+                # Add CV sessions
+                cv_idx = 0
+                for session in sessions:
+                    s_path_val = session.get('session_path')
+                    if isinstance(s_path_val, np.ndarray):
+                        s_path_val = s_path_val.item()
+                    s_path = Path(s_path_val).resolve() if s_path_val else None
+                    n_rois = len(session['y'])
+                    sessions_list.append({
+                        'name': f"{s_path.name} (CV Held-Out)" if s_path else f"Session {len(sessions_list)+1} (CV Held-Out)",
+                        'start_idx': curr_idx,
+                        'end_idx': curr_idx + n_rois,
+                        'total_rois': n_rois
+                    })
+                    combined_y_prob.extend(y_prob[cv_idx : cv_idx + n_rois].tolist())
+                    combined_y_true.extend(y_true[cv_idx : cv_idx + n_rois].tolist())
+                    combined_y_pred.extend(y_pred[cv_idx : cv_idx + n_rois].tolist())
+                    cv_idx += n_rois
+                    curr_idx += n_rois
+                
+                res = {
+                    'status': 'success',
+                    'cv_summary': cv_summary,
+                    'baseline': baseline,
+                    'shap_importance': importance,
+                    'fp_culprits': fp_culprits,
+                    'fn_culprits': fn_culprits,
+                    'active_features': active_feats,
+                    'sessions': sessions_list,
+                    'y_prob': combined_y_prob,
+                    'y_true': combined_y_true,
+                    'y_pred': combined_y_pred
+                }
+                
+                state.cv_progress['percent'] = 100
+                state.cv_progress['status'] = 'Finished.'
+                state.cv_progress['active'] = False
+                
+                self.send_json(res)
+            except Exception as e:
+                state.cv_progress['active'] = False
+                state.cv_progress['status'] = f"Error: {str(e)}"
+                self.send_error_json(str(e))
+            return
+
+        elif path == '/api/playground/set_baseline':
+            try:
+                f1 = float(params.get('f1', [0.0])[0])
+                precision = float(params.get('precision', [0.0])[0])
+                recall = float(params.get('recall', [0.0])[0])
+                feats_str = params.get('features', [''])[0]
+                feats = [f.strip() for f in feats_str.split(',') if f.strip()]
+                
+                workspace_dir = Path("/home/tomer/Documents/suite2p-iscell-prediction")
+                baseline_path = workspace_dir / "fe_baseline.json"
+                
+                baseline = {
+                    'f1': f1,
+                    'precision': precision,
+                    'recall': recall,
+                    'features': feats
+                }
+                with open(baseline_path, 'w') as f:
+                    json.dump(baseline, f, indent=4)
+                    
+                self.send_json({'status': 'success', 'baseline': baseline})
+            except Exception as e:
+                self.send_error_json(str(e))
+            return
+
+        elif path == '/api/playground/recompute':
+            try:
+                feature_name = params.get('feature_name', [''])[0].strip()
+                if not feature_name:
+                    raise ValueError("No feature name specified.")
+                
+                workspace_dir = Path("/home/tomer/Documents/suite2p-iscell-prediction")
+                cache_dir = workspace_dir / "preprocessed_cache"
+                
+                import fe_engine.fe_definitions
+                importlib = __import__('importlib')
+                importlib.reload(fe_engine.fe_definitions)
+                from fe_engine.fe_definitions import FEATURE_REGISTRY
+                
+                if feature_name not in FEATURE_REGISTRY:
+                    raise ValueError(f"Feature '{feature_name}' not defined in fe_definitions.py.")
+                
+                extractor = FEATURE_REGISTRY[feature_name]
+                npz_files = list(cache_dir.glob("preprocessed_*.npz"))
+                
+                if len(npz_files) == 0:
+                    raise FileNotFoundError("No cached npz files found.")
+                
+                from joblib import Parallel, delayed
+                def worker(f):
+                    try:
+                        data = np.load(f, allow_pickle=True)
+                        sess = {k: data[k] for k in data.files}
+                        raw_path_str = sess['session_path']
+                        if isinstance(raw_path_str, np.ndarray):
+                            raw_path_str = raw_path_str.item()
+                        raw_path = Path(raw_path_str)
+                        
+                        F_arr = np.load(raw_path / 'F.npy', mmap_mode='r')
+                        Fneu_arr = np.load(raw_path / 'Fneu.npy', mmap_mode='r')
+                        sess['F'] = F_arr
+                        sess['Fneu'] = Fneu_arr
+                        
+                        new_val = extractor(sess)
+                        
+                        del sess['F']
+                        del sess['Fneu']
+                        
+                        sess[feature_name] = new_val
+                        np.savez_compressed(f, **sess)
+                        return True
+                    except:
+                        return False
+                
+                results = Parallel(n_jobs=2)(delayed(worker)(f) for f in npz_files)
+                success_count = sum(1 for r in results if r)
+                
+                self.send_json({
+                    'status': 'success',
+                    'success_count': success_count,
+                    'total_count': len(npz_files)
+                })
+            except Exception as e:
+                self.send_error_json(str(e))
+            return
+
+        elif path == '/api/playground/retrain':
+            try:
+                feats_str = params.get('features', [''])[0]
+                active_feats = [f.strip() for f in feats_str.split(',') if f.strip()]
+                formulas = params.get('formulas', [])
+                if not active_feats:
+                    raise ValueError("No active features selected.")
+                
+                # Parse formulas
+                custom_formulas = {}
+                for formula in formulas:
+                    formula = formula.strip()
+                    if not formula or '=' not in formula:
+                        continue
+                    name, expr = formula.split('=', 1)
+                    custom_formulas[name.strip()] = expr.strip()
+
+                from fe_engine.fe_definitions import FEATURE_REGISTRY, safe_eval_formula
+                import fe_engine.fe_definitions
+                from fe_engine.fe_loop_runner import load_preprocessed_data, extract_features_dataset, update_definitions_file
+                workspace_dir = Path("/home/tomer/Documents/suite2p-iscell-prediction")
+                cache_dir = workspace_dir / "preprocessed_cache"
+                
+                sessions = load_preprocessed_data(cache_dir)
+                
+                # Evaluate custom formulas on sessions and register them
+                for name, expr in custom_formulas.items():
+                    for session in sessions:
+                        ns = {key: session[key] for key in session.keys() if isinstance(session[key], np.ndarray) and len(session[key].shape) == 1}
+                        try:
+                            session[name] = safe_eval_formula(expr, ns)
+                        except Exception as eval_exc:
+                            raise ValueError(f"Error evaluating custom formula '{name} = {expr}': {str(eval_exc)}")
+                    fe_engine.fe_definitions.FEATURE_REGISTRY[name] = lambda cache, n=name: cache[n]
+
+                # Update definitions file only with standard (non-custom) active features
+                reg_active = [f for f in active_feats if f in FEATURE_REGISTRY and f not in custom_formulas]
+                update_definitions_file(reg_active)
+                
+                X, y, groups = extract_features_dataset(sessions, active_feats)
+                
+                n_pos = np.sum(y == 1)
+                n_neg = np.sum(y == 0)
+                scale_pos_weight = n_neg / n_pos if n_pos > 0 else 1.0
+                
+                import lightgbm as lgb
+                final_model = lgb.LGBMClassifier(
+                    n_estimators=500,
+                    learning_rate=0.05,
+                    max_depth=8,
+                    num_leaves=63,
+                    scale_pos_weight=scale_pos_weight,
+                    subsample=0.8,
+                    colsample_bytree=0.8,
+                    random_state=42,
+                    n_jobs=-1,
+                    verbosity=-1
+                )
+                final_model.fit(X, y, feature_name=active_feats)
+                
+                model_out_path = state.model_path
+                if not model_out_path:
+                    model_out_path = workspace_dir / 'models' / 'regular' / 'suite2p_best_lgb.pkl'
+                
+                model_out_path.parent.mkdir(parents=True, exist_ok=True)
+                joblib.dump(final_model, model_out_path)
+                
+                # Write sibling metadata JSON file
+                meta_out_path = model_out_path.with_suffix('.json')
+                with open(meta_out_path, 'w') as f:
+                    json.dump({
+                        'active_features': active_feats,
+                        'custom_features': custom_formulas
+                    }, f, indent=4)
+                
+                state.load_model(str(model_out_path))
+                
+                self.send_json({
+                    'status': 'success',
+                    'retrained_model': str(model_out_path),
+                    'features': active_feats
+                })
+            except Exception as e:
+                self.send_error_json(str(e))
+            return
+
         else:
             self.send_response(404)
             self.end_headers()
@@ -1546,7 +2427,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             </div>
             
             <div class="flex items-center gap-4">
-                <span class="text-xs px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center gap-1.5">
+                <a href="/" class="text-xs font-semibold px-3 py-2 rounded-lg bg-blue-600/10 border border-blue-500/20 text-blue-400 hover:bg-blue-600/20 transition flex items-center gap-1.5">
+                    <i class="fa-solid fa-microscope"></i> Cell Curation
+                </a>
+                <a href="/playground" class="text-xs font-semibold px-3 py-2 rounded-lg bg-brand-border text-gray-300 hover:bg-brand-border/80 transition flex items-center gap-1.5">
+                    <i class="fa-solid fa-flask"></i> Feature Playground
+                </a>
+                <span class="text-xs px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center gap-1.5 flex-shrink-0">
                     <span class="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span> Server Active
                 </span>
             </div>
@@ -3439,11 +4326,8 @@ def run_server(port=5000):
     
     default_model = None
     regular_best = "models/regular/suite2p_best_lgb.pkl"
-    no_index_best = "models/no_index/suite2p_best_lgb.pkl"
     if (dir_path / regular_best).exists():
         default_model = regular_best
-    elif (dir_path / no_index_best).exists():
-        default_model = no_index_best
     elif "suite2p_best_lgb.pkl" in [Path(m).name for m in models]:
         for m in models:
             if Path(m).name == "suite2p_best_lgb.pkl":
@@ -3473,7 +4357,7 @@ def run_server(port=5000):
                 except Exception as e:
                     print(f"Error loading initial session {s}: {e}")
                 
-    server = HTTPServer(('localhost', port), DashHandler)
+    server = ThreadingHTTPServer(('localhost', port), DashHandler)
     print(f"\n==================================================================")
     print(f"  Suite2p AI Decision Explainer Server is running!")
     print(f"  --> Local Address: http://localhost:{port}")

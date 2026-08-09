@@ -11,12 +11,7 @@ def train_lgb_model(data_dir, output_model_path, preset='regular'):
     data_path = Path(data_dir)
     
     # Resolve names based on preset
-    if preset == 'noidx':
-        x_name = 'X_dataset_noidx.npy'
-        y_name = 'y_dataset_noidx.npy'
-        groups_name = 'groups_dataset_noidx.npy'
-        default_out = 'models/no_index/suite2p_best_lgb.pkl'
-    elif preset == 'rich':
+    if preset == 'rich':
         x_name = 'X_dataset_rich.npy'
         y_name = 'y_dataset_rich.npy'
         groups_name = 'groups_dataset_rich.npy'
@@ -146,7 +141,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train LightGBM Cell Classifier")
     parser.add_argument('--data', type=str, default=".", help="Directory containing compiled dataset .npy files")
     parser.add_argument('--output', type=str, default=None, help="Output path for the trained model .pkl")
-    parser.add_argument('--preset', type=str, choices=['regular', 'noidx', 'rich'], default="regular", help="Feature set preset ('regular', 'noidx', or 'rich')")
+    parser.add_argument('--preset', type=str, choices=['regular', 'rich'], default="regular", help="Feature set preset ('regular' or 'rich')")
     args = parser.parse_args()
     
     train_lgb_model(args.data, args.output, args.preset)

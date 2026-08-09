@@ -1,0 +1,1993 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Suite2p AI Classifier - Feature Playground</title>
+    <!-- Tailwind CSS (via CDN) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Plotly.js -->
+    <script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
+    <!-- Google Fonts: Outfit -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Outfit', 'sans-serif'],
+                    },
+                    colors: {
+                        brand: {
+                            50: '#f2f7ff',
+                            100: '#e1eeff',
+                            200: '#bcdbff',
+                            500: '#3b82f6',
+                            600: '#2563eb',
+                            700: '#1d4ed8',
+                            900: '#1e3a8a',
+                            darkBg: '#0b0f19',
+                            cardBg: '#151d30',
+                            border: '#1f2d47'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #0b0f19;
+            color: #f3f4f6;
+        }
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0b0f19;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #1f2d47;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #3b82f6;
+        }
+        .glassmorphism {
+            background: rgba(21, 29, 48, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+    </style>
+</head>
+<body class="font-sans antialiased overflow-x-hidden">
+
+    <!-- HEADER -->
+    <header class="border-b border-brand-border bg-brand-cardBg/50 sticky top-0 z-50 backdrop-blur-md">
+        <div class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+            <div class="flex items-center gap-3">
+                <div class="bg-blue-600 text-white p-2 rounded-xl shadow-lg shadow-blue-500/20">
+                    <i class="fa-solid fa-flask text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold tracking-tight bg-gradient-to-r from-blue-400 via-indigo-200 to-purple-400 bg-clip-text text-transparent">
+                        Suite2p Feature Playground
+                    </h1>
+                    <p class="text-xs text-gray-400">Interactive Feature Engineering, Group Cross-Validation, & Model Retraining</p>
+                </div>
+            </div>
+            
+            <div class="flex items-center gap-4">
+                <a href="/" class="text-xs font-semibold px-3 py-2 rounded-lg bg-brand-border text-gray-300 hover:bg-brand-border/80 transition flex items-center gap-1.5">
+                    <i class="fa-solid fa-microscope"></i> Cell Curation
+                </a>
+                <a href="/playground" class="text-xs font-semibold px-3 py-2 rounded-lg bg-blue-600/10 border border-blue-500/20 text-blue-400 hover:bg-blue-600/20 transition flex items-center gap-1.5">
+                    <i class="fa-solid fa-flask"></i> Feature Playground
+                </a>
+                <span class="text-xs px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center gap-1.5">
+                    <span class="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span> Server Active
+                </span>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+        
+        <!-- TOP MODEL BANNER -->
+        <section class="glassmorphism p-4 rounded-2xl flex flex-wrap justify-between items-center gap-4">
+            <div class="flex items-center gap-3">
+                <i class="fa-solid fa-brain text-purple-400 text-xl"></i>
+                <div>
+                    <span class="text-xs text-gray-400 block font-semibold uppercase">Currently Active Model</span>
+                    <span class="text-sm font-bold text-gray-200" id="active-model-display">Loading model info...</span>
+                </div>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="text-xs text-gray-400 uppercase font-semibold">Active Model Feature Size:</span>
+                <span class="text-sm font-bold text-blue-400" id="active-model-features-count">-</span>
+            </div>
+        </section>
+
+        <!-- MAIN LAYOUT -->
+        <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            
+            <!-- LEFT COLUMN: FEATURE SELECTION & CUSTOM FORMULAS -->
+            <div class="space-y-6 xl:col-span-1">
+                <!-- Feature Checklist Card -->
+                <div class="glassmorphism p-5 rounded-2xl shadow-xl space-y-4">
+                    <div class="flex justify-between items-center">
+                        <div class="flex items-center gap-2">
+                            <h3 class="text-sm font-bold uppercase tracking-wider text-gray-300">Feature Directory</h3>
+                            <span class="bg-purple-500/20 text-purple-300 border border-purple-500/30 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1">
+                                <i class="fa-solid fa-bolt text-amber-400"></i> SHAP Ranked
+                            </span>
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick="toggleAllFeatures(true)" class="text-[11px] text-blue-400 hover:text-blue-300 transition font-semibold">Select All</button>
+                            <span class="text-gray-600 text-[11px]">|</span>
+                            <button onclick="toggleAllFeatures(false)" class="text-[11px] text-gray-400 hover:text-gray-300 transition font-semibold">Clear All</button>
+                        </div>
+                    </div>
+                    
+                    <p class="text-xs text-gray-400 leading-relaxed">
+                        Features ordered by their cross-validated <strong class="text-purple-300">SHAP impact</strong> on cell classification. The most critical features appear first.
+                    </p>
+
+                    <!-- Search and Sort Bar -->
+                    <div class="space-y-2 pt-1">
+                        <div class="relative">
+                            <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-gray-500 text-xs"></i>
+                            <input type="text" id="feature-search-input" oninput="populateChecklist()"
+                                   placeholder="Filter features (e.g. asym, q99, npix)..."
+                                   class="w-full bg-brand-darkBg border border-brand-border/80 rounded-xl pl-8 pr-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-purple-500 transition">
+                        </div>
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-[10.5px] text-gray-400 font-medium">Sort Order:</span>
+                            <select id="feature-sort-mode" onchange="populateChecklist()"
+                                    class="flex-1 bg-brand-darkBg border border-brand-border/80 rounded-lg px-2 py-1 text-[11px] text-gray-300 font-semibold focus:outline-none focus:border-purple-500 transition">
+                                <option value="shap_desc">⚡ SHAP: High → Low (Default)</option>
+                                <option value="shap_asc">⚡ SHAP: Low → High</option>
+                                <option value="name_asc">🔤 Alphabetical (A-Z)</option>
+                                <option value="active_first">⭐ Active Model First</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="max-h-[500px] overflow-y-auto border border-brand-border/60 rounded-xl bg-brand-darkBg/50 p-2 space-y-1.5" id="features-checklist-container">
+                        <!-- Dynamically populated checklist -->
+                        <div class="p-4 text-center text-xs text-gray-500">Loading features...</div>
+                    </div>
+                </div>
+
+                <!-- Custom Formulas Card -->
+                <div class="glassmorphism p-5 rounded-2xl shadow-xl space-y-4">
+                    <h3 class="text-sm font-bold uppercase tracking-wider text-gray-300">Dynamic Feature Formulas</h3>
+                    <p class="text-xs text-gray-400 leading-relaxed">
+                        Add custom algebraic features evaluated at run-time. Use numpy functions like <code class="bg-brand-darkBg px-1 rounded text-purple-300">log</code>, <code class="bg-brand-darkBg px-1 rounded text-purple-300">exp</code>, <code class="bg-brand-darkBg px-1 rounded text-purple-300">sqrt</code>, or arithmetic operators on existing features.
+                    </p>
+                    
+                    <!-- Formulas List -->
+                    <div class="space-y-2" id="custom-formulas-list">
+                        <!-- Custom formulas injected here -->
+                    </div>
+                    
+                    <!-- Formula Form -->
+                    <div class="border-t border-brand-border/60 pt-4 space-y-3">
+                        <div class="grid grid-cols-3 gap-2">
+                            <input type="text" id="new-formula-name" 
+                                   class="col-span-1 bg-brand-darkBg border border-brand-border rounded-xl px-3 py-2 text-xs text-gray-200 focus:outline-none focus:border-blue-500 transition" 
+                                   placeholder="f_ratio">
+                            <input type="text" id="new-formula-expr" 
+                                   class="col-span-2 bg-brand-darkBg border border-brand-border rounded-xl px-3 py-2 text-xs text-gray-200 focus:outline-none focus:border-blue-500 transition" 
+                                   placeholder="solidity * mrs">
+                        </div>
+                        <button onclick="addCustomFormula()"
+                                class="w-full bg-brand-border hover:bg-brand-border/80 border border-brand-border/40 text-gray-200 font-semibold px-4 py-2 rounded-xl text-xs transition flex items-center justify-center gap-1.5">
+                            <i class="fa-solid fa-plus text-blue-400"></i> Add Custom Feature
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Recomputation Card -->
+                <div class="glassmorphism p-5 rounded-2xl shadow-xl space-y-4">
+                    <h3 class="text-sm font-bold uppercase tracking-wider text-gray-300">Recompute Features</h3>
+                    <p class="text-xs text-gray-400 leading-relaxed">
+                        If you modified a feature's calculation logic inside <code class="bg-brand-darkBg px-1 rounded text-amber-300">fe_definitions.py</code>, select it below and click Recompute. This loads the raw GCaMP traces for all 22 sessions in parallel and updates the disk cache.
+                    </p>
+                    <div class="flex gap-2">
+                        <select id="recompute-feature-select" 
+                                class="flex-1 bg-brand-darkBg border border-brand-border rounded-xl px-3 py-2 text-xs text-gray-200 focus:outline-none focus:border-blue-500 transition">
+                            <option value="">-- Choose feature to recompute --</option>
+                        </select>
+                        <button onclick="triggerRecompute()" id="recompute-btn"
+                                class="bg-amber-600 hover:bg-amber-500 text-white font-semibold px-4 py-2 rounded-xl text-xs transition flex items-center gap-1.5">
+                            <i class="fa-solid fa-arrows-rotate"></i> Recompute
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RIGHT COLUMN: PERFORMANCE & DIAGNOSTICS -->
+            <div class="space-y-6 xl:col-span-2">
+                <!-- Evaluation Controls & Metrics -->
+                <div class="glassmorphism p-6 rounded-3xl shadow-xl space-y-6">
+                    <div class="flex flex-wrap justify-between items-center gap-4 border-b border-brand-border/60 pb-4">
+                        <div>
+                            <h2 class="text-base font-bold text-gray-200">Evaluation Control & Results</h2>
+                            <p class="text-xs text-gray-400">Train LightGBM using 5-fold GroupKFold CV on your active features.</p>
+                        </div>
+                        <div class="flex gap-3">
+                            <button onclick="runEvaluation()" id="run-eval-btn"
+                                    class="bg-blue-600 hover:bg-blue-500 text-white font-semibold px-6 py-3 rounded-xl shadow-lg shadow-blue-500/20 active:scale-95 transition flex items-center gap-2">
+                                <i class="fa-solid fa-play text-xs"></i> Run CV Evaluation
+                            </button>
+                            <button onclick="setBaseline()" id="baseline-btn" disabled
+                                    class="bg-brand-border hover:bg-brand-border/80 text-gray-300 disabled:opacity-50 font-semibold px-4 py-3 rounded-xl text-xs border border-brand-border/40 transition flex items-center gap-1.5">
+                                <i class="fa-solid fa-thumbtack text-amber-400"></i> Set as Baseline
+                            </button>
+                            <button onclick="retrainModel()" id="retrain-btn" disabled
+                                    class="bg-purple-600 hover:bg-purple-500 text-white disabled:opacity-50 font-semibold px-4 py-3 rounded-xl text-xs transition flex items-center gap-1.5">
+                                <i class="fa-solid fa-hammer"></i> Save & Retrain Model
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Metrics Grid -->
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6" id="metrics-cards-container">
+                        <!-- F1 Card -->
+                        <div class="bg-brand-darkBg/60 border border-brand-border/60 rounded-2xl p-5 flex flex-col justify-between">
+                            <div class="text-xs text-gray-400 font-semibold uppercase tracking-wide">F1-Score</div>
+                            <div class="flex items-baseline justify-between mt-2">
+                                <div class="text-4xl font-extrabold text-white" id="f1-val">-</div>
+                                <div class="text-xs font-bold" id="f1-diff"></div>
+                            </div>
+                            <div class="text-[10px] text-gray-500 mt-1" id="f1-std">-</div>
+                        </div>
+
+                        <!-- Precision Card -->
+                        <div class="bg-brand-darkBg/60 border border-brand-border/60 rounded-2xl p-5 flex flex-col justify-between">
+                            <div class="text-xs text-gray-400 font-semibold uppercase tracking-wide">Precision</div>
+                            <div class="flex items-baseline justify-between mt-2">
+                                <div class="text-4xl font-extrabold text-white" id="precision-val">-</div>
+                                <div class="text-xs font-bold" id="precision-diff"></div>
+                            </div>
+                            <div class="text-[10px] text-gray-500 mt-1" id="precision-std">-</div>
+                        </div>
+
+                        <!-- Recall Card -->
+                        <div class="bg-brand-darkBg/60 border border-brand-border/60 rounded-2xl p-5 flex flex-col justify-between">
+                            <div class="text-xs text-gray-400 font-semibold uppercase tracking-wide">Recall</div>
+                            <div class="flex items-baseline justify-between mt-2">
+                                <div class="text-4xl font-extrabold text-white" id="recall-val">-</div>
+                                <div class="text-xs font-bold" id="recall-diff"></div>
+                            </div>
+                            <div class="text-[10px] text-gray-500 mt-1" id="recall-std">-</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- DIAGNOSTIC BREAKDOWN (importance & errors) -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6" id="diagnostics-row" style="display: none;">
+                    
+                    <!-- SHAP Importance -->
+                    <div class="glassmorphism p-5 rounded-2xl space-y-4">
+                        <h3 class="text-sm font-bold uppercase tracking-wider text-gray-300">Feature Importance (SHAP)</h3>
+                        <div class="space-y-2 max-h-[400px] overflow-y-auto pr-1" id="shap-importance-container">
+                            <!-- Injected bars -->
+                        </div>
+                    </div>
+
+                    <!-- Error Diagnostic culprits -->
+                    <div class="glassmorphism p-5 rounded-2xl space-y-4 flex flex-col justify-between">
+                        <div class="space-y-4">
+                            <h3 class="text-sm font-bold uppercase tracking-wider text-gray-300">Error Diagnostic Culprits</h3>
+                            
+                            <!-- FP Table -->
+                            <div class="space-y-2">
+                                <span class="text-[11px] font-bold text-red-400 uppercase tracking-wide flex items-center gap-1.5">
+                                    <i class="fa-solid fa-circle-exclamation"></i> Top FP Culprits (Noise predicted as Cell)
+                                </span>
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-xs text-left text-gray-300">
+                                        <thead>
+                                            <tr class="border-b border-brand-border text-gray-500">
+                                                <th class="py-1">Feature</th>
+                                                <th class="py-1 text-right">SHAP Diff</th>
+                                                <th class="py-1 text-right">FP Mean</th>
+                                                <th class="py-1 text-right">TN Mean</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="fp-culprits-tbody">
+                                            <!-- FP culprits -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- FN Table -->
+                            <div class="space-y-2 pt-2 border-t border-brand-border/40">
+                                <span class="text-[11px] font-bold text-purple-400 uppercase tracking-wide flex items-center gap-1.5">
+                                    <i class="fa-solid fa-circle-exclamation"></i> Top FN Culprits (Cell predicted as Noise)
+                                </span>
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-xs text-left text-gray-300">
+                                        <thead>
+                                            <tr class="border-b border-brand-border text-gray-500">
+                                                <th class="py-1">Feature</th>
+                                                <th class="py-1 text-right">SHAP Diff</th>
+                                                <th class="py-1 text-right">FN Mean</th>
+                                                <th class="py-1 text-right">TP Mean</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="fn-culprits-tbody">
+                                            <!-- FN culprits -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- Session Probability Distribution & ROI Clusters -->
+                <div class="glassmorphism p-6 rounded-3xl shadow-xl space-y-4" id="scatter-plot-card">
+                    <div class="flex justify-between items-center flex-wrap gap-4 border-b border-brand-border/60 pb-4">
+                        <div>
+                            <h3 class="text-sm font-bold uppercase tracking-wider text-gray-300">Session Probability Distribution & ROI Clusters</h3>
+                            <p class="text-xs text-gray-400 mt-1">Cross-validated or active model predictions. Select any session to visualize its predictions.</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">Select Session:</span>
+                            <select id="scatter-session-select" onchange="drawScatterPlot()" class="bg-brand-darkBg border border-brand-border rounded-lg text-xs text-gray-300 px-2.5 py-1.5 focus:outline-none focus:border-blue-500 transition">
+                                <option value="">No Session Loaded</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="bg-brand-darkBg/30 border border-brand-border/40 rounded-xl p-3">
+                        <div id="probability-scatter-plot" class="w-full h-[400px] flex items-center justify-center text-xs text-gray-500">
+                            <i class="fa-solid fa-spinner animate-spin mr-2"></i> Loading scatter plot predictions...
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </main>
+
+    <!-- LOADING MODAL -->
+    <div id="loading-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-brand-darkBg/80 backdrop-blur-sm" style="display: none;">
+        <div class="glassmorphism p-8 rounded-3xl text-center space-y-4 max-w-sm border border-brand-border shadow-2xl">
+            <div class="flex justify-center">
+                <i class="fa-solid fa-circle-notch text-blue-500 text-4xl animate-spin"></i>
+            </div>
+            <div class="space-y-3">
+                <h3 class="text-lg font-bold text-gray-200" id="loading-title">Evaluating Feature Set...</h3>
+                <p class="text-xs text-gray-400 leading-relaxed font-mono" id="loading-message">Running 5-Fold GroupKFold Cross-Validation. This typically takes 1-2 seconds.</p>
+                <div id="loading-progress-container" class="w-full bg-brand-darkBg border border-brand-border rounded-full h-2 overflow-hidden" style="display: none;">
+                    <div id="loading-progress-bar" class="bg-blue-500 h-full rounded-full transition-all duration-300" style="width: 0%;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- FEATURE DETAIL MODAL -->
+    <div id="feature-detail-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-brand-darkBg/80 backdrop-blur-sm transition-all duration-300 opacity-0 pointer-events-none" style="display: none;">
+        <div class="glassmorphism p-6 rounded-3xl w-full max-w-2xl border border-brand-border shadow-2xl space-y-5 transform scale-95 transition-all duration-300 relative max-h-[90vh] overflow-y-auto">
+            <!-- Close Button -->
+            <button onclick="closeFeatureDetailModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-200 transition text-lg">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+            
+            <div class="flex items-center gap-3 border-b border-brand-border pb-3">
+                <div class="bg-blue-600/10 border border-blue-500/20 text-blue-400 p-2 rounded-xl">
+                    <i class="fa-solid fa-circle-info text-xl"></i>
+                </div>
+                <div>
+                    <h3 class="text-lg font-bold text-gray-200" id="detail-modal-title">Feature Name</h3>
+                    <span class="inline-block bg-indigo-500/15 border border-indigo-500/30 text-indigo-400 px-2.5 py-0.5 rounded-full text-[10px] font-semibold tracking-wide uppercase mt-1" id="detail-modal-category">Category</span>
+                </div>
+            </div>
+            
+            <div class="space-y-4 text-xs font-normal">
+                <!-- Formula Section -->
+                <div class="space-y-1.5">
+                    <div class="flex justify-between items-center">
+                        <span class="text-gray-400 font-bold uppercase tracking-wide text-[10px]">Calculation Formula / Logic</span>
+                        <span id="detail-modal-type-badge" class="text-[9px] font-bold px-1.5 py-0.5 rounded">Built-in</span>
+                    </div>
+                    <div id="detail-formula-container" class="relative">
+                        <!-- Readonly code block or editable input -->
+                    </div>
+                </div>
+
+                <!-- Helpful / Benefit Section -->
+                <div class="space-y-1">
+                    <span class="text-gray-400 font-bold uppercase tracking-wide text-[10px] flex items-center gap-1">
+                        <i class="fa-regular fa-thumbs-up text-emerald-400"></i> Why is it helpful?
+                    </span>
+                    <p class="text-gray-200 leading-relaxed bg-brand-darkBg/30 border border-brand-border/40 p-3 rounded-xl font-normal" id="detail-modal-helpful">
+                        Explanation...
+                    </p>
+                </div>
+
+                <!-- Biological Context Section -->
+                <div class="space-y-1">
+                    <span class="text-gray-400 font-bold uppercase tracking-wide text-[10px] flex items-center gap-1">
+                        <i class="fa-solid fa-dna text-indigo-400"></i> Biological Context / Signal Origin
+                    </span>
+                    <p class="text-gray-300 leading-relaxed bg-brand-darkBg/30 border border-brand-border/40 p-3 rounded-xl font-normal" id="detail-modal-bio">
+                        Physiological context...
+                    </p>
+                </div>
+
+                <!-- Downside Section -->
+                <div class="space-y-1">
+                    <span class="text-gray-400 font-bold uppercase tracking-wide text-[10px] flex items-center gap-1">
+                        <i class="fa-solid fa-triangle-exclamation text-amber-500 animate-pulse"></i> Downsides & Performance Risks
+                    </span>
+                    <p class="text-gray-200 leading-relaxed bg-amber-500/5 border border-amber-500/20 p-3 rounded-xl font-normal" id="detail-modal-downside">
+                        Downsides/risks...
+                    </p>
+                </div>
+            </div>
+
+            <!-- Footer / Action bar -->
+            <div class="flex justify-end gap-3 pt-3 border-t border-brand-border">
+                <button onclick="closeFeatureDetailModal()" class="px-4 py-2 bg-brand-border hover:bg-brand-border/80 text-gray-300 rounded-xl transition text-xs font-semibold">
+                    Close
+                </button>
+                <button id="detail-save-btn" onclick="saveModalCustomFormula()" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl transition text-xs font-semibold shadow-lg shadow-blue-500/20" style="display: none;">
+                    Save Formula
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification system -->
+    <div id="notification-box" class="fixed bottom-5 right-5 z-50 max-w-sm glassmorphism p-4 rounded-xl border border-brand-border shadow-2xl flex items-start gap-3 transition" style="display: none;">
+        <i id="notif-icon" class="fa-solid fa-circle-check text-green-400 mt-0.5 text-lg"></i>
+        <div>
+            <h4 class="font-bold text-sm text-gray-200" id="notif-title">Success</h4>
+            <p class="text-xs text-gray-400" id="notif-desc">Action completed.</p>
+        </div>
+    </div>
+
+    <!-- JS LOGIC -->
+    <script>
+        let availableFeatures = [];
+        let activeFeatures = [];
+        let loadedModelFeatures = [];
+        let customFormulas = {};
+        
+        let lastCvSummary = null;
+        let baselineSummary = null;
+        let activeSessionPath = null;
+        let sessionsList = [];
+        let cvProbabilities = [];
+        let cvGroundTruth = [];
+        let cvPredictions = [];
+
+        // Safe HTML escaping helper
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        // Code-like syntax highlighter for mathematical formulas using a token-based lexer
+        function highlightFormulaCode(rawCode) {
+            if (!rawCode) return '';
+
+            const lines = rawCode.split('\n');
+            const KEYWORDS = new Set([
+                'def', 'for', 'in', 'if', 'return', 'where', 'sqrt', 'std', 'Std', 'mean', 'Mean', 
+                'max', 'min', 'count', 'Count', 'sum', 'Sum', 'Find_Peaks', 'find_peaks', 
+                'Sort_Ascending', 'Uniform_Filter_1D', 'Percentile', 'Median', 'median', 'Cov', 'cov'
+            ]);
+
+            const VARS = new Set([
+                'Fcorr', 'Fneu', 'F', 'npix', 'radius', 'solidity', 'mrs', 'compact', 'aspect_ratio', 
+                'number_of_bright_pixels', 'bright_pixels_ratio', 'area_to_radius_sq', 'bright_pixels_to_radius_sq', 
+                'roi_idx_norm', 'roi_idx_norm_3bin', 'diff_Fcorr', 'F_smooth', 'sorted_Fcorr', 'std_below', 
+                'std_above', 'threshold', 'denom', 'max_F', 'mean_F', 'std_F', 'std_Fneu', 'std_raw', 
+                'std_smooth', 'peaks', 'val_raw', 'val_smooth', 'peak_diff', 'q_diff', 'rise_width', 
+                'decay_width', 'total_width', 'asymmetry', 'lambda_i', 'max_lambda', 'Major_Axis', 
+                'Minor_Axis', 'Area', 'Perimeter', 'ROI', 'ROI_mask', 'Convex_Hull', 'Boundary', 'Centroid', 
+                'Signal_Variance', 'Noise_Variance', 'q99_smooth_ratio', 'snr', 'activity_ratio', 'peak_density',
+                'skew_f', 'std_f', 'max_to_mean_f', 'cv_f', 'skew_fneu', 'corr_f_fneu', 'skew_fcorr', 
+                'std_fcorr', 'skew_diff_fcorr', 'avg_asym', 'max_asym', 'max_width', 'range_fcorr', 'range_f'
+            ]);
+
+            const highlightedLines = lines.map(line => {
+                const trimmed = line.trim();
+                // Full line comments
+                if (trimmed.startsWith('#') || trimmed.startsWith('//')) {
+                    return `<span class="text-emerald-400 italic font-mono">${escapeHtml(line)}</span>`;
+                }
+
+                // Check for inline comment
+                let codePart = line;
+                let commentPart = '';
+                const hashIdx = line.indexOf('#');
+                if (hashIdx !== -1) {
+                    codePart = line.substring(0, hashIdx);
+                    commentPart = line.substring(hashIdx);
+                }
+
+                // Tokenize codePart using precise regex
+                const tokenRegex = /(\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b|\b[a-zA-Z_]\w*\b|==|<=|>=|!=|\/\/|[=+\-*/^><%]|[()[\]{},:.]|\s+|[^\s\w=+\-*/^><%()[\]{},:.]+)/g;
+
+                let tokens = codePart.match(tokenRegex) || [codePart];
+                let highlightedCode = tokens.map(token => {
+                    const safe = escapeHtml(token);
+
+                    // Numeric constants
+                    if (/^\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(token)) {
+                        return `<span class="text-amber-300 font-medium">${safe}</span>`;
+                    }
+                    // Keywords / Math functions
+                    if (KEYWORDS.has(token)) {
+                        return `<span class="text-purple-400 font-semibold">${safe}</span>`;
+                    }
+                    // Variables and feature identifiers
+                    if (VARS.has(token) || /^q\d+$/.test(token) || /^smoothness_ratio_/.test(token) || /^fraction_active_/.test(token) || /^skew_fcorr_smooth_/.test(token) || /^peak_to_q/.test(token)) {
+                        return `<span class="text-sky-300 font-semibold">${safe}</span>`;
+                    }
+                    // Operators
+                    if (/^(?:==|<=|>=|!=|\/\/|[=+\-*/^><%])$/.test(token)) {
+                        return `<span class="text-rose-400 font-bold">${safe}</span>`;
+                    }
+                    // Brackets / Punctuation
+                    if (/^[()[\]{},:]$/.test(token)) {
+                        return `<span class="text-gray-400 font-mono">${safe}</span>`;
+                    }
+
+                    return safe;
+                }).join('');
+
+                if (commentPart) {
+                    highlightedCode += `<span class="text-emerald-400/80 italic font-mono">${escapeHtml(commentPart)}</span>`;
+                }
+
+                return highlightedCode;
+            });
+
+            return highlightedLines.join('\n');
+        }
+
+        // Built-in feature metadata with exact, syntactically valid Python code
+        const FEATURE_METADATA = {
+            'npix': {
+                cat: "Spatial & Morphology",
+                summary: "Counts the total number of physical spatial pixels in the cell ROI.",
+                formula: "# 1. Inputs:\n# stat = Suite2p dictionary for cell ROI from stat.npy\n\n# 2. Calculation:\nnpix = int(stat['npix'])  # total pixel count inside the cell mask",
+                bio: "Reflects the cross-sectional physical area of the ROI. Neuronal somas imaged under typical magnification fall within a specific size envelope (typically 50 to 300 pixels).",
+                helpful: "Highly effective at filtering out extremely small noise fragments (sub-somatic debris) or very large artifacts (dendritic trunks, blood vessels, or multi-cell merges).",
+                downside: "Extremely dependent on magnification, frame size, pixel size, and optical zoom. A model trained on a specific zoom level may misclassify valid cells if applied to data collected at different optical settings."
+            },
+            'solidity': {
+                cat: "Spatial & Morphology",
+                summary: "Computes the ratio of the cell's actual pixel area to the area of its minimum convex hull polygon.",
+                formula: "# 1. Inputs:\n# stat = Suite2p dictionary for cell ROI from stat.npy\n\n# 2. Calculation:\n# Ratio of pixel count in ROI to total pixel count in its enclosing convex hull\nsolidity = float(stat['solidity'])",
+                bio: "Neuronal somas are generally compact, round, or ellipsoidal shapes, which are highly convex. Debris, overlapping processes, or crossing axons form irregular, concave, or branched structures with lower solidity.",
+                helpful: "Superb at identifying and rejecting branching dendrites, axons, and complex background noise.",
+                downside: "Out-of-focus round debris or localized laser flare hotspots can have a solidity close to 1.0. Conversely, true cells with bright proximal dendrites included in the ROI may have reduced solidity and get falsely rejected."
+            },
+            'mrs': {
+                cat: "Spatial & Morphology",
+                summary: "Measures boundary distance standard deviation to the centroid (0.0 for circular somata).",
+                formula: "# 1. Inputs:\n# stat = Suite2p dictionary for cell ROI from stat.npy\n\n# 2. Calculation:\n# Standard deviation of radial distance from each boundary contour pixel to centroid\nmrs = float(stat['mrs'])  # Mean Square Radius variation (0.0 for a perfect circle)",
+                bio: "Mean Square Radius variation. Measures the radial symmetry and circularity of the ROI boundary. A perfect circle has Mrs = 0. Real somata exhibit low Mrs, whereas irregular, elongated, or multi-center ROIs have high Mrs.",
+                helpful: "Strong morphological metric to enforce circularity and prune highly asymmetric or multi-peak shapes.",
+                downside: "Small cells containing very few pixels are susceptible to pixelation/discretization noise, which inflates Mrs artificially and leads to false negatives."
+            },
+            'compact': {
+                cat: "Spatial & Morphology",
+                summary: "Calculates normalized circular compactness using perimeter squared over (4π × Area).",
+                formula: "# 1. Inputs:\n# stat = Suite2p dictionary for cell ROI from stat.npy\n\n# 2. Calculation:\n# compact = (perimeter ** 2) / (4.0 * np.pi * npix)\ncompact = float(stat['compact'])  # 1.0 for an ideal circle; > 1.0 for irregular shapes",
+                bio: "Morphological compactness or circularity. A perfect circle has a compactness of 1.0. Complex, jagged, or branch-like boundaries have significantly higher values.",
+                helpful: "Excellent at identifying and pruning complex dendritic boundaries and merged doublets.",
+                downside: "Highly redundant with Mrs and solidity, which can increase model complexity without adding unique variance if not regularized."
+            },
+            'aspect_ratio': {
+                cat: "Spatial & Morphology",
+                summary: "Computes major-to-minor axis ratio of the 2D fitted spatial ellipse for the cell.",
+                formula: "# 1. Inputs:\n# stat = Suite2p dictionary for cell ROI from stat.npy\n\n# 2. Calculation:\n# Ratio of major axis to minor axis from fitted 2D moment ellipse\naspect_ratio = float(stat['aspect_ratio'])",
+                bio: "Neuronal somata are round or slightly oval (Aspect Ratio between 1.0 and 1.5). Dendrites, blood vessels, and motion-shearing artifacts are highly elongated (Aspect Ratio > 2.0).",
+                helpful: "Directly filters out linear, elongated non-somatic structures (blood vessels, apical dendrites, and motion streaking).",
+                downside: "Cells imaged at steep angles near the edges of the field of view or compressed by nearby tissue may appear moderately elongated, risking false rejection."
+            },
+            'radius': {
+                cat: "Spatial & Morphology",
+                summary: "Calculates equivalent physical radius in pixels from fitted ellipse semi-axes.",
+                formula: "# 1. Inputs:\n# stat = Suite2p dictionary for cell ROI from stat.npy\n\n# 2. Calculation:\n# Equivalent physical radius in pixels derived from ellipse covariance matrix\nradius = float(stat['radius'])",
+                bio: "Represents the equivalent physical radius of the cell soma based on the fitted ellipse parameters.",
+                helpful: "Provides a clean, interpretable physical scale constraint for the cellular soma.",
+                downside: "Fails to accurately represent cells with irregular or highly asymmetric non-elliptical boundaries."
+            },
+            'number_of_bright_pixels': {
+                cat: "Spatial & Morphology",
+                summary: "Counts pixels in the cell ROI whose spatial weights exceed 10% of the peak weight.",
+                formula: "# 1. Inputs:\n# stat = Suite2p dictionary for cell ROI from stat.npy (contains pixel weights 'lam')\n\n# 2. Calculation:\nlam = stat['lam']\nnumber_of_bright_pixels = int(np.sum(lam > 0.1 * np.max(lam)))",
+                bio: "In genuine neurons, GCaMP expression is concentrated in a bright cytoplasmic shell around the nucleus. The spatial weights (lambda) of the pixels should have a dense, highly weighted core rather than a diffuse or flat distribution.",
+                helpful: "Highly effective at identifying the dense core mass of a cell, filtering out diffuse neuropil or weak background patches.",
+                downside: "Vulnerable to low signal-to-noise ratio. In dim cells with few photons, the spatial weights can be extremely noisy, leading to unstable core mass estimation."
+            },
+            'bright_pixels_ratio': {
+                cat: "Spatial & Morphology",
+                summary: "Calculates the fraction of total cell pixels belonging to the bright cytoplasmic core.",
+                formula: "# 1. Inputs:\n# stat = Suite2p dictionary for cell ROI from stat.npy\n\n# 2. Calculation:\nlam = stat['lam']\nnbright = np.sum(lam > 0.1 * np.max(lam))\nbright_pixels_ratio = float(nbright / max(stat['npix'], 1))",
+                bio: "Size-normalized metric of cytoplasmic GCaMP signal concentration. Real cells show a compact bright core, meaning a large proportion of their total pixels are bright (ratio of 0.4 - 0.8). Diffuse ROIs or background noise have low ratios.",
+                helpful: "Size-invariant. Excellent for distinguishing small, compact cells from large, diffuse neuropil patches.",
+                downside: "Very small ROIs can have extreme, noisy ratios due to small-denominator effects."
+            },
+            'area_to_radius_sq': {
+                cat: "Spatial & Morphology",
+                summary: "Measures somatic circular scaling by dividing pixel area by squared fitted radius.",
+                formula: "# 1. Inputs:\n# npix = Total pixel area of the cell ROI (stat['npix'])\n# radius = Fitted 2D spatial ellipse radius (stat['radius'])\n\n# 2. Calculation:\ndenom = max(radius ** 2, 1e-6)\narea_to_radius_sq = float(npix / denom)  # equal to pi (~3.14159) for a circular soma",
+                bio: "For a perfect circle, Area = pi * radius^2, so this ratio is pi (~3.14). Significant deviations from this ratio indicate irregular, elongated, or fragmented geometries.",
+                helpful: "Quantifies deviations from ideal circular geometry using two separate measurements (pixel count vs fitted ellipse radius).",
+                downside: "Highly sensitive to radius estimation errors, which are common for highly irregular or fragmented shapes."
+            },
+            'bright_pixels_to_radius_sq': {
+                cat: "Spatial & Morphology",
+                summary: "Calculates the core bright pixel count normalized by squared fitted radius.",
+                formula: "# 1. Inputs:\n# nbright = Count of pixels with spatial weight lam > 0.1 * max(lam)\n# radius = Fitted 2D spatial ellipse radius (stat['radius'])\n\n# 2. Calculation:\ndenom = max(radius ** 2, 1e-6)\nbright_pixels_to_radius_sq = float(nbright / denom)",
+                bio: "Normalizes the size of the active cell core by the squared radius of the fitted ellipse. Real cells show a high density of bright pixels in their central core.",
+                helpful: "Ensures that the bright core size scales properly with the overall fitted size of the cell.",
+                downside: "Fails for hollow cells (e.g. ring-shaped labeling where the center is dark) or cells with highly non-uniform GCaMP expression."
+            },
+            'roi_idx_norm': {
+                cat: "Spatial Rank Index",
+                summary: "Normalizes the cell's detection position by total session ROIs as a continuous prior.",
+                formula: "# 1. Inputs:\n# i = 0-indexed position of ROI in Suite2p detection output array\n# n_cells = total number of detected ROIs in the recording session\n\n# 2. Calculation:\nroi_idx_norm = float(i / max(n_cells, 1))  # continuous rank prior in [0.0, 1.0)",
+                bio: "Suite2p outputs ROIs in order of its internal classifier score. Lower indices represent high confidence under Suite2p's default model. Normalizing it provides a standard prior across sessions.",
+                helpful: "Acts as a strong, continuous prior by leveraging Suite2p's default classification ranking.",
+                downside: "Highly pipeline-dependent. It propagates any systematic sorting bias from Suite2p's default classifier. If the default classifier performs poorly on a session, this index will mislead the AI model."
+            },
+            'skew_f': {
+                cat: "Raw Trace Statistics",
+                summary: "Computes 3rd standardized moment (skewness) of the raw somatic calcium trace.",
+                formula: "# 1. Inputs:\n# F = somatic raw calcium trace across T frames (1D array of shape [T])\n\n# 2. Calculation:\n# 3rd standardized moment of raw somatic fluorescence\nskew_f = float(scipy.stats.skew(F))",
+                bio: "Active calcium indicator signals are highly asymmetric: long periods near baseline, interrupted by sharp, upward spikes. This generates positive skewness. Symmetrical noise has a skewness near 0.",
+                helpful: "A very powerful biological marker. Rejects quiet background noise and symmetrical laser power oscillations.",
+                downside: "Extremely vulnerable to positive-going non-biological artifacts, such as movement artifacts, laser power spikes, or dust particles passing through the light path."
+            },
+            'std_f': {
+                cat: "Raw Trace Statistics",
+                summary: "Calculates total standard deviation of raw somatic fluorescence across frames.",
+                formula: "# 1. Inputs:\n# F = somatic raw calcium trace across T frames (1D array of shape [T])\n\n# 2. Calculation:\n# Standard deviation of raw somatic fluorescence\nstd_f = float(np.std(F))",
+                bio: "Measures total raw trace variability. Active cells with calcium transients have high variance.",
+                helpful: "Effective at distinguishing active cells from inactive background.",
+                downside: "Highly sensitive to slow baseline drifts, photobleaching, or z-drift, which inflate trace variance without reflecting biological transients."
+            },
+            'max_to_mean_f': {
+                cat: "Raw Trace Statistics",
+                summary: "Measures peak transient height relative to the raw baseline fluorescence level.",
+                formula: "# 1. Inputs:\n# F = somatic raw calcium trace across T frames (1D array of shape [T])\n\n# 2. Calculation:\nmean_val = max(np.mean(F), 1e-10)\nmax_to_mean_f = float(np.max(F) / mean_val)",
+                bio: "Active neurons show large, transient upward spikes that far exceed their average baseline fluorescence level.",
+                helpful: "Identifies cells with sparse, high-amplitude bursts.",
+                downside: "If the baseline offset (mean) is high due to deep imaging or strong neuropil background, this ratio is heavily compressed."
+            },
+            'cv_f': {
+                cat: "Raw Trace Statistics",
+                summary: "Calculates the coefficient of variation (Std F / Mean F) of raw somatic fluorescence.",
+                formula: "# 1. Inputs:\n# F = somatic raw calcium trace across T frames (1D array of shape [T])\n\n# 2. Calculation:\nmean_val = max(np.mean(F), 1e-10)\ncv_f = float(np.std(F) / mean_val)  # Coefficient of Variation",
+                bio: "Measures trace variability relative to the mean brightness.",
+                helpful: "Provides a normalized measure of signal fluctuation.",
+                downside: "Highly sensitive to absolute baseline offsets. Division by small numbers can cause instability when mean is close to zero."
+            },
+            'skew_fneu': {
+                cat: "Neuropil Statistics",
+                summary: "Computes skewness of the surrounding neuropil background fluorescence trace.",
+                formula: "# 1. Inputs:\n# Fneu = surrounding neuropil background trace across T frames (1D array of shape [T])\n\n# 2. Calculation:\n# 3rd standardized moment of neuropil background trace\nskew_fneu = float(scipy.stats.skew(Fneu))",
+                bio: "The neuropil trace represents average out-of-focus background light. Neuropil signals are typically diffuse and symmetric (low skewness). High positive skew in the neuropil indicates a nearby highly active cell bleeding in.",
+                helpful: "Helps detect when nearby active cells are contaminating the local background.",
+                downside: "Highly synchronized population activity can cause regional neuropil skewness, confusing the model."
+            },
+            'corr_f_fneu': {
+                cat: "Neuropil Statistics",
+                summary: "Calculates Pearson correlation between the cell trace and surrounding neuropil.",
+                formula: "# 1. Inputs:\n# F = somatic raw calcium trace across T frames (1D array of shape [T])\n# Fneu = surrounding neuropil background trace across T frames (1D array of shape [T])\n\n# 2. Calculation:\n# Pearson correlation coefficient between somatic and neuropil traces\ncov = np.mean((F - np.mean(F)) * (Fneu - np.mean(Fneu)))\ncorr_f_fneu = float(cov / (np.std(F) * np.std(Fneu) + 1e-10))",
+                bio: "If an ROI's signal is just out-of-focus neuropil contamination (not a real cell), F and Fneu will be highly correlated. Real cells have independent somatic activity, lowering their correlation.",
+                helpful: "Excellent for pruning non-cells that are completely contaminated by local neuropil background.",
+                downside: "In densely packed tissues, a real cell might fire in sync with surrounding neuropil, leading to high correlation."
+            },
+            'skew_fcorr': {
+                cat: "Neuropil-Corrected Trace Statistics",
+                summary: "Computes skewness of the neuropil-corrected trace (F - 0.7 * Fneu) to detect calcium bursts.",
+                formula: "# 1. Inputs:\n# F = somatic raw calcium trace across T frames (1D array of shape [T])\n# Fneu = surrounding neuropil background trace across T frames (1D array of shape [T])\n\n# 2. Neuropil subtraction:\nFcorr = F - 0.7 * Fneu\n\n# 3. Calculation:\nskew_fcorr = float(scipy.stats.skew(Fcorr))",
+                bio: "The neuropil-corrected trace (Fcorr) contains the true cell signal. Real active neurons must show strong positive skewness in Fcorr.",
+                helpful: "The primary temporal indicator of biological action. Rejects artifacts that disappear after subtraction.",
+                downside: "If the 0.7 subtraction coefficient is too high or low, it can introduce artifacts or suppress real signals."
+            },
+            'std_fcorr': {
+                cat: "Neuropil-Corrected Trace Statistics",
+                summary: "Calculates standard deviation of the neuropil-corrected trace to quantify activity amplitude.",
+                formula: "# 1. Inputs:\n# F = somatic raw calcium trace across T frames (1D array of shape [T])\n# Fneu = surrounding neuropil background trace across T frames (1D array of shape [T])\n\n# 2. Neuropil subtraction:\nFcorr = F - 0.7 * Fneu\n\n# 3. Calculation:\nstd_fcorr = float(np.std(Fcorr))",
+                bio: "Trace variability after neuropil correction.",
+                helpful: "Captures true cell signal amplitude relative to baseline noise.",
+                downside: "Can be inflated by subtraction noise if Fneu is extremely noisy."
+            },
+            'skew_diff_fcorr': {
+                cat: "Neuropil-Corrected Trace Statistics",
+                summary: "Calculates skewness of the first-difference derivative to capture sharp transient rise phases.",
+                formula: "# 1. Inputs:\n# F = somatic raw calcium trace across T frames (1D array of shape [T])\n# Fneu = surrounding neuropil background trace across T frames (1D array of shape [T])\n\n# 2. Neuropil subtraction & first-difference derivative:\nFcorr = F - 0.7 * Fneu\ndiff_Fcorr = np.diff(Fcorr)\n\n# 3. Calculation:\nskew_diff_fcorr = float(scipy.stats.skew(diff_Fcorr))",
+                bio: "The first derivative of a calcium transient has a large positive spike (rise phase) and a small, prolonged negative baseline (decay phase). This yields positive skewness in the derivative.",
+                helpful: "Captures the sharp rise signature of biological transients.",
+                downside: "High-frequency upward noise spikes can also inflate the skewness of the first difference."
+            },
+            'avg_asym': {
+                cat: "Calcium Kinetics & Peak Dynamics",
+                summary: "Calculates average decay-to-rise asymmetry ratio at half-height across detected calcium peaks.",
+                formula: "# 1. Inputs:\n# F = somatic raw calcium trace (1D array of shape [T])\n# Fneu = surrounding neuropil background trace (1D array of shape [T])\n\n# 2. Neuropil subtraction:\nFcorr = F - 0.7 * Fneu\n\n# 3. Peak detection & half-height kinetics:\nthreshold = np.mean(Fcorr) + 2.0 * np.std(Fcorr)\npeaks, _ = scipy.signal.find_peaks(Fcorr, height=threshold, distance=10)\n\nif len(peaks) > 0:\n    widths, width_heights, left_ips, right_ips = scipy.signal.peak_widths(Fcorr, peaks, rel_height=0.5)\n    rise_widths = peaks - left_ips       # frames from left half-height intercept to peak frame\n    decay_widths = right_ips - peaks     # frames from peak frame to right half-height intercept\n    asymmetry_ratios = decay_widths / np.maximum(rise_widths, 0.1)\n    avg_asym = float(np.mean(asymmetry_ratios))\nelse:\n    avg_asym = 1.0",
+                bio: "GCaMP calcium indicators have rapid binding kinetics (fast rise) and slow dissociation kinetics (slow decay). Biological peaks are highly asymmetric (Asymmetry >= 2.0). Noise fluctuations are symmetric (Asymmetry ~ 1.0).",
+                helpful: "Excellent biological classifier. Strongly rejects symmetric optical, electrical, or mechanical noise.",
+                downside: "Requires active firing. Silent cells default to 1.0, making active but quiet cells look like noise."
+            },
+            'max_asym': {
+                cat: "Calcium Kinetics & Peak Dynamics",
+                summary: "Finds the maximum decay-to-rise asymmetry ratio among all detected calcium transients in the cell.",
+                formula: "# 1. Inputs:\n# F = somatic raw calcium trace (1D array of shape [T])\n# Fneu = surrounding neuropil background trace (1D array of shape [T])\n\n# 2. Neuropil subtraction:\nFcorr = F - 0.7 * Fneu\n\n# 3. Peak detection & half-height kinetics:\nthreshold = np.mean(Fcorr) + 2.0 * np.std(Fcorr)\npeaks, _ = scipy.signal.find_peaks(Fcorr, height=threshold, distance=10)\n\nif len(peaks) > 0:\n    widths, width_heights, left_ips, right_ips = scipy.signal.peak_widths(Fcorr, peaks, rel_height=0.5)\n    rise_widths = peaks - left_ips       # frames from left half-height intercept to peak frame\n    decay_widths = right_ips - peaks     # frames from peak frame to right half-height intercept\n    asymmetry_ratios = decay_widths / np.maximum(rise_widths, 0.1)\n    max_asym = float(np.max(asymmetry_ratios))\nelse:\n    max_asym = 1.0",
+                bio: "GCaMP calcium indicators have rapid binding kinetics (fast rise) and slow dissociation kinetics (slow decay). Biological peaks are highly asymmetric (Asymmetry >= 2.0). Noise fluctuations are symmetric (Asymmetry ~ 1.0).",
+                helpful: "Excellent biological classifier. Strongly rejects symmetric optical, electrical, or mechanical noise.",
+                downside: "Requires active firing. Silent cells default to 1.0, making active but quiet cells look like noise."
+            },
+            'max_width': {
+                cat: "Calcium Kinetics & Peak Dynamics",
+                summary: "Determines the longest transient duration (rise + decay frames) at half-height.",
+                formula: "# 1. Inputs:\n# F = somatic raw calcium trace (1D array of shape [T])\n# Fneu = surrounding neuropil background trace (1D array of shape [T])\n\n# 2. Neuropil subtraction:\nFcorr = F - 0.7 * Fneu\n\n# 3. Peak detection & full width at half-height:\nthreshold = np.mean(Fcorr) + 2.0 * np.std(Fcorr)\npeaks, _ = scipy.signal.find_peaks(Fcorr, height=threshold, distance=10)\n\nif len(peaks) > 0:\n    widths, width_heights, left_ips, right_ips = scipy.signal.peak_widths(Fcorr, peaks, rel_height=0.5)\n    max_width = float(np.max(widths))  # full peak width at half-height in frames\nelse:\n    max_width = 0.0",
+                bio: "Real GCaMP transients last hundreds of milliseconds to seconds. High-frequency noise is very narrow (1-2 frames). This feature separates biological transients from electronic noise.",
+                helpful: "Filters out high-frequency electrical or photon noise.",
+                downside: "Slow mechanical motion artifacts can create wide peaks that mimic biological transients."
+            },
+            'snr': {
+                cat: "Biological & Signal Quality",
+                summary: "Computes temporal SNR by dividing corrected trace variance by first-difference noise variance.",
+                formula: "# 1. Inputs:\n# F = somatic raw calcium trace (1D array of shape [T])\n# Fneu = surrounding neuropil background trace (1D array of shape [T])\n\n# 2. Neuropil subtraction & first difference:\nFcorr = F - 0.7 * Fneu\ndiff_Fcorr = np.diff(Fcorr)\n\n# 3. Calculation:\nsignal_std = np.std(Fcorr)\nnoise_std = max(np.std(diff_Fcorr), 1e-6)\nsnr = float(signal_std / noise_std)",
+                bio: "Disentangles the slow biological signal variance from fast high-frequency measurement noise. A high SNR is a strong, unit-less indicator of cell activity.",
+                helpful: "Provides a clean, unit-less signal quality metric that is independent of absolute brightness.",
+                downside: "Silent or inactive cells with stable baselines have low SNR and may be rejected, even if they are structurally perfect."
+            },
+            'activity_ratio': {
+                cat: "Biological & Signal Quality",
+                summary: "Calculates the ratio of signal variance above the median to noise variance below the median.",
+                formula: "# 1. Inputs:\n# F = somatic raw calcium trace (1D array of shape [T])\n# Fneu = surrounding neuropil background trace (1D array of shape [T])\n\n# 2. Neuropil subtraction:\nFcorr = F - 0.7 * Fneu\n\n# 3. Calculation:\n# Split into baseline floor (frames <= median) and transient excursions (frames > median)\nsorted_Fcorr = np.sort(Fcorr)\nn_frames = len(sorted_Fcorr)\nstd_below = max(np.std(sorted_Fcorr[:n_frames // 2]), 1e-6)\nstd_above = np.std(sorted_Fcorr[n_frames // 2:])\nactivity_ratio = float(std_above / std_below)",
+                bio: "Since calcium transients are positive, the variance of the signal above the median (transients) is much larger than below (baseline noise). Noise is symmetric, yielding a ratio ~ 1.0.",
+                helpful: "Highly sensitive to positive excursions. Noise has a symmetric ratio ~ 1.0.",
+                downside: "Slow baseline drifts or asymmetric artifacts (like laser power decay) can distort this ratio."
+            },
+            'peak_density': {
+                cat: "Biological & Signal Quality",
+                summary: "Calculates the number of detected 2-sigma calcium transient peaks per recorded frame.",
+                formula: "# 1. Inputs:\n# F = somatic raw calcium trace (1D array of shape [T])\n# Fneu = surrounding neuropil background trace (1D array of shape [T])\n\n# 2. Neuropil subtraction:\nFcorr = F - 0.7 * Fneu\nT = len(Fcorr)\n\n# 3. Peak detection threshold:\nthreshold = np.mean(Fcorr) + 2.0 * np.std(Fcorr)\npeaks, _ = scipy.signal.find_peaks(Fcorr, height=threshold, distance=10)\npeak_density = float(len(peaks) / T) if T > 0 else 0.0",
+                bio: "Directly quantifies the firing rate of the cell. Real cells fire occasionally, whereas very noisy ROIs or blood vessels have false peaks (high density) or none (zero density).",
+                helpful: "Captures active firing frequency.",
+                downside: "Highly silent cells have zero peak density, making them look similar to flat noise. Noisy traces can inflate the density with false peaks."
+            },
+            'q99_smooth_ratio': {
+                cat: "Advanced Temporal & Smoothing",
+                summary: "Compares 99th-percentile burst amplitude before and after 5-frame moving average smoothing.",
+                formula: "# 1. Inputs:\n# F = somatic raw calcium trace (1D array of shape [T])\n# Fneu = surrounding neuropil background trace (1D array of shape [T])\n\n# 2. Neuropil subtraction & 5-frame moving average:\nFcorr = F - 0.7 * Fneu\nF_smooth = scipy.ndimage.uniform_filter1d(Fcorr, size=5)\n\n# 3. Calculation:\nval_raw = np.percentile(Fcorr, 99) - np.median(Fcorr)\nval_smooth = max(np.percentile(F_smooth, 99) - np.median(F_smooth), 1e-6)\nq99_smooth_ratio = float(val_raw / val_smooth)",
+                bio: "High-frequency spikes (noise) are heavily suppressed by smoothing, yielding a high ratio (>>1.0). Slow biological transients are relatively unaffected by a small smoothing window, yielding a ratio close to 1.0.",
+                helpful: "Highlights high-frequency noise spikes that attempt to mimic calcium transients.",
+                downside: "Very fast, transient single-action-potential signals might be slightly smoothed, raising the ratio and leading to false rejection."
+            }
+        };
+
+        // Fallback for grouped/dynamic feature names
+        function getMetadataFor(name) {
+            if (customFormulas[name]) {
+                return {
+                    cat: "Custom Dynamic Formula",
+                    summary: `Evaluates custom dynamic formula expression: ${customFormulas[name]}`,
+                    formula: `# Custom Dynamic Formula Expression:\n${name} = ${customFormulas[name]}`,
+                    bio: "This is a custom user-defined formula evaluated dynamically at run-time.",
+                    helpful: "Enables custom combinations of features to inspect classification power and SHAP importance.",
+                    downside: "Calculated dynamically at evaluation time via python eval, which can introduce minor computational overhead on very large datasets."
+                };
+            }
+            
+            if (FEATURE_METADATA[name]) {
+                return FEATURE_METADATA[name];
+            }
+            
+            if (/^q[0-9]+$/.test(name)) {
+                const pct = name.substring(1);
+                return {
+                    cat: "Trace Quantiles",
+                    summary: `Extracts the ${pct}th percentile value from the sorted neuropil-corrected trace for each cell.`,
+                    formula: `# 1. Inputs:\n# F = somatic raw calcium trace (1D array of shape [T])\n# Fneu = surrounding neuropil background trace (1D array of shape [T])\n\n# 2. Neuropil subtraction:\nFcorr = F - 0.7 * Fneu\n\n# 3. Calculation:\nsorted_Fcorr = np.sort(Fcorr)\nidx = int(${pct} / 100.0 * (len(sorted_Fcorr) - 1))\n${name} = float(sorted_Fcorr[idx])`,
+                    bio: "Real GCaMP traces spend most of their time at baseline (lower quantiles are tightly clustered). Active calcium transients pull the upper quantiles (q90, q95, q99) far above the median, creating a characteristic distribution shape.",
+                    helpful: "Quantifies the entire distribution shape, distinguishing brief transients from continuous background shifts.",
+                    downside: "For inactive cells, upper quantiles just reflect the tail of the baseline noise. If noise is non-Gaussian (e.g. shot noise), these quantiles can mimic active traces."
+                };
+            }
+            
+            if (name === 'range_fcorr') {
+                return {
+                    cat: "Trace Amplitudes",
+                    summary: "Computes the maximum dynamic range (Max - Min) of the neuropil-corrected trace for each cell.",
+                    formula: `# 1. Inputs:\n# F = somatic raw calcium trace (1D array of shape [T])\n# Fneu = surrounding neuropil background trace (1D array of shape [T])\n\n# 2. Neuropil subtraction:\nFcorr = F - 0.7 * Fneu\n\n# 3. Calculation:\nrange_fcorr = float(np.max(Fcorr) - np.min(Fcorr))`,
+                    bio: "Captures the maximum dynamic range of the corrected (Fcorr) trace relative to the baseline and high-frequency noise. Active cells display large transient ranges.",
+                    helpful: "Highlights the absolute maximum signal excursion, useful for picking up sparse, high-amplitude bursts.",
+                    downside: "Extremely vulnerable to single outlier spikes, hot pixels, laser glitches, or motion artifacts that happen once in a session."
+                };
+            }
+
+            if (name === 'range_f') {
+                return {
+                    cat: "Trace Amplitudes",
+                    summary: "Computes the maximum raw brightness range (Max - Min) of the uncorrected somatic trace.",
+                    formula: `# 1. Inputs:\n# F = somatic raw calcium trace across T frames (1D array of shape [T])\n\n# 2. Calculation:\nrange_f = float(np.max(F) - np.min(F))`,
+                    bio: "Captures the maximum dynamic range of the uncorrected raw (F) trace.",
+                    helpful: "Highlights the overall raw brightness excursion of the cell.",
+                    downside: "Can be inflated by surrounding neuropil movement or laser power fluctuations."
+                };
+            }
+            
+            if (name.startsWith('smoothness_ratio_')) {
+                const w = name.replace('smoothness_ratio_w', '');
+                return {
+                    cat: "Advanced Temporal & Smoothing",
+                    summary: `Measures high-frequency noise rejection using a moving average window size of ${w} frames.`,
+                    formula: `# 1. Inputs:\n# F = somatic raw calcium trace (1D array of shape [T])\n# Fneu = surrounding neuropil background trace (1D array of shape [T])\n\n# 2. Neuropil subtraction & 1D uniform moving average:\nFcorr = F - 0.7 * Fneu\nF_smooth = scipy.ndimage.uniform_filter1d(Fcorr, size=${w})\n\n# 3. Calculation:\nstd_raw = max(np.std(Fcorr), 1e-6)\nstd_smooth = np.std(F_smooth)\n${name} = float(std_smooth / std_raw)`,
+                    bio: "Real calcium transients are slow and low-frequency, so smoothing them does not significantly reduce their variance. High-frequency noise is smoothed out, drastically reducing its variance. A ratio near 1.0 indicates a slow, smooth signal (real cell), while a low ratio indicates high-frequency noise.",
+                    helpful: "Highly effective at identifying and rejecting high-frequency noise traces.",
+                    downside: "Highly active cells with very fast transients might see some reduction in variance, reducing the ratio."
+                };
+            }
+            
+            if (name.startsWith('fraction_active_')) {
+                const k = name.replace('fraction_active_k', '');
+                return {
+                    cat: "Advanced Temporal & Smoothing",
+                    summary: `Calculates the fraction of frames where the cell signal exceeds the baseline floor by ${k} standard deviations.`,
+                    formula: `# 1. Inputs:\n# F = somatic raw calcium trace (1D array of shape [T])\n# Fneu = surrounding neuropil background trace (1D array of shape [T])\n\n# 2. Neuropil subtraction:\nFcorr = F - 0.7 * Fneu\n\n# 3. Baseline noise estimation from frames below median:\nsorted_Fcorr = np.sort(Fcorr)\nn_frames = len(sorted_Fcorr)\nmedian_val = sorted_Fcorr[n_frames // 2]\nstd_below = max(np.std(sorted_Fcorr[:n_frames // 2]), 1e-6)\n\n# 4. Calculation:\nthreshold = median_val + ${k}.0 * std_below\n${name} = float(np.mean(Fcorr > threshold))`,
+                    bio: "Quantifies the proportion of time a cell spends in an active state. Using the below-median standard deviation provides a robust, transient-free estimate of baseline noise.",
+                    helpful: "Robustly measures active firing time relative to baseline noise.",
+                    downside: "Very quiet cells will have a fraction near 0, while extremely active cells might shift the median and lead to underestimation of active frames."
+                };
+            }
+            
+            if (name.startsWith('skew_fcorr_smooth_')) {
+                const w = name.replace('skew_fcorr_smooth_w', '');
+                return {
+                    cat: "Advanced Temporal & Smoothing",
+                    summary: `Calculates transient skewness on the smoothed corrected trace using window size ${w}.`,
+                    formula: `# 1. Inputs:\n# F = somatic raw calcium trace (1D array of shape [T])\n# Fneu = surrounding neuropil background trace (1D array of shape [T])\n\n# 2. Neuropil subtraction & 1D uniform moving average:\nFcorr = F - 0.7 * Fneu\nF_smooth = scipy.ndimage.uniform_filter1d(Fcorr, size=${w})\n\n# 3. Calculation:\n${name} = float(scipy.stats.skew(F_smooth))`,
+                    bio: "Smoothing removes high-frequency noise spikes that could artificially inflate or deflate the skewness, leaving a clean estimate of the biological signal's asymmetry.",
+                    helpful: "Removes high-frequency noise spikes for a cleaner estimate of biological signal asymmetry.",
+                    downside: "Can slightly reduce the skewness of very brief, genuine transients."
+                };
+            }
+            
+            if (name.startsWith('peak_to_q')) {
+                const q = name.replace('peak_to_q', '').replace('_ratio', '');
+                return {
+                    cat: "Advanced Temporal & Smoothing",
+                    summary: `Compares maximum burst peak against the ${q}th percentile to reject single hot-pixel glitches.`,
+                    formula: `# 1. Inputs:\n# F = somatic raw calcium trace (1D array of shape [T])\n# Fneu = surrounding neuropil background trace (1D array of shape [T])\n\n# 2. Neuropil subtraction:\nFcorr = F - 0.7 * Fneu\n\n# 3. Calculation:\nsorted_Fcorr = np.sort(Fcorr)\nn_frames = len(sorted_Fcorr)\nmax_val = sorted_Fcorr[-1]\nmed_val = sorted_Fcorr[n_frames // 2]\nq_val = sorted_Fcorr[int(0.${q} * (n_frames - 1))]\n\npeak_diff = max_val - med_val\nq_diff = max(q_val - med_val, 1e-6)\n${name} = float(peak_diff / q_diff)`,
+                    bio: "Distinguishes single brief artifacts/hot pixels (where max >> P99, ratio >> 1.0) from sustained calcium transients (where P99 is close to max, ratio is close to 1.0).",
+                    helpful: "Superb at identifying single hot pixels or brief laser glitch spikes.",
+                    downside: "Very brief, valid single-action-potential transients might have high ratios and be misclassified."
+                };
+            }
+            
+            return {
+                cat: "General Feature",
+                summary: `Computes extraction logic for ${name} in fe_engine/fe_definitions.py.`,
+                formula: `# Calculation:\n# Evaluated in fe_engine/fe_definitions.py for feature: ${name}`,
+                bio: "Part of the default Suite2p or custom feature set.",
+                helpful: "Contributes to the Multi-Dimensional LightGBM classifier prediction power.",
+                downside: "Please check the feature correlation metrics to see if it causes redundancy."
+            };
+        }
+
+        // LocalStorage helpers for custom formulas
+        function loadCustomFormulasFromStorage() {
+            try {
+                const stored = localStorage.getItem('customFormulas');
+                if (stored) {
+                    customFormulas = JSON.parse(stored);
+                    
+                    // Render to formulas panel list
+                    const list = document.getElementById('custom-formulas-list');
+                    list.innerHTML = '';
+                    Object.keys(customFormulas).forEach(name => {
+                        const expr = customFormulas[name];
+                        const item = document.createElement('div');
+                        item.className = "flex items-center justify-between bg-brand-darkBg/60 border border-brand-border/60 px-3 py-2.5 rounded-xl text-xs";
+                        item.id = `formula-row-${name}`;
+                        item.innerHTML = `
+                            <div class="font-semibold text-gray-300 cursor-pointer hover:text-blue-400" onclick="openFeatureDetailModal('${name}')">${name} <span class="text-gray-500 font-normal">= ${expr}</span></div>
+                            <div class="flex items-center gap-2">
+                                <button onclick="openFeatureDetailModal('${name}')" class="text-blue-400 hover:text-blue-300 font-bold transition mr-1" title="Edit Formula">
+                                    <i class="fa-regular fa-pen-to-square"></i>
+                                </button>
+                                <button onclick="removeCustomFormula('${name}')" class="text-red-400 hover:text-red-300 font-bold transition" title="Delete Formula">
+                                    <i class="fa-regular fa-trash-can"></i>
+                                </button>
+                            </div>
+                        `;
+                        list.appendChild(item);
+                    });
+                }
+            } catch (err) {
+                console.error("Error loading custom formulas:", err);
+            }
+        }
+
+        function saveCustomFormulasToStorage() {
+            try {
+                localStorage.setItem('customFormulas', JSON.stringify(customFormulas));
+            } catch (err) {
+                console.error("Error saving custom formulas:", err);
+            }
+        }
+
+        // Modal triggers
+        let currentDetailFeature = null;
+
+        function openFeatureDetailModal(name) {
+            currentDetailFeature = name;
+            const meta = getMetadataFor(name);
+
+            document.getElementById('detail-modal-title').textContent = name;
+            document.getElementById('detail-modal-category').textContent = meta.cat;
+            document.getElementById('detail-modal-helpful').textContent = meta.helpful || meta.bio;
+            document.getElementById('detail-modal-bio').textContent = meta.bio;
+            document.getElementById('detail-modal-downside').textContent = meta.downside;
+
+            const formulaContainer = document.getElementById('detail-formula-container');
+            const badge = document.getElementById('detail-modal-type-badge');
+            const saveBtn = document.getElementById('detail-save-btn');
+
+            saveBtn.style.display = 'inline-block';
+
+            if (customFormulas[name]) {
+                badge.textContent = "Custom Formula";
+                badge.className = "text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-500/10 border border-blue-500/20 text-blue-400 uppercase tracking-wider";
+                saveBtn.textContent = 'Save Formula';
+
+                formulaContainer.innerHTML = `
+                    <div class="space-y-3">
+                        <div class="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-300 text-xs font-medium shadow-sm">
+                            <i class="fa-solid fa-flask text-purple-400 text-sm"></i>
+                            <div class="leading-snug">
+                                <span class="text-[10px] uppercase font-bold text-purple-400/80 block tracking-wider">Per-Cell Dynamic Formula</span>
+                                <span class="text-gray-200">${meta.summary || meta.bio}</span>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="text-[10px] text-gray-400 mb-1.5 font-semibold uppercase tracking-wider">Custom Formula Expression:</div>
+                            <textarea id="detail-modal-formula-input" 
+                                      class="w-full bg-[#0b0f19] border border-brand-border rounded-xl p-3 font-mono text-[11px] text-blue-300 focus:outline-none focus:border-blue-500 transition resize-y shadow-inner" 
+                                      rows="2">${customFormulas[name]}</textarea>
+                        </div>
+                        <div>
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">Code Syntax Preview:</span>
+                                <div class="flex items-center gap-2 text-[9px] font-mono text-gray-400 bg-brand-darkBg/60 border border-brand-border/40 px-2 py-0.5 rounded-md">
+                                    <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>comments</span>
+                                    <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-purple-400"></span>functions</span>
+                                    <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-sky-300"></span>vars</span>
+                                    <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span>ops</span>
+                                    <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-amber-300"></span>nums</span>
+                                </div>
+                            </div>
+                            <pre class="bg-[#0b0f19] border border-purple-900/40 p-3.5 rounded-xl font-mono text-[11.5px] leading-relaxed text-gray-100 overflow-x-auto whitespace-pre-wrap select-all shadow-inner border-l-4 border-l-purple-500">${highlightFormulaCode(meta.formula)}</pre>
+                        </div>
+                    </div>
+                `;
+            } else {
+                badge.textContent = "Built-in Feature";
+                badge.className = "text-[9px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 uppercase tracking-wider";
+                saveBtn.textContent = 'Save as Edited Feature';
+
+                formulaContainer.innerHTML = `
+                    <div class="space-y-3">
+                        <div class="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-300 text-xs font-medium shadow-sm">
+                            <i class="fa-solid fa-calculator text-blue-400 text-sm"></i>
+                            <div class="leading-snug">
+                                <span class="text-[10px] uppercase font-bold text-blue-400/80 block tracking-wider">Per-Cell Calculation Objective</span>
+                                <span class="text-gray-200">${meta.summary || meta.bio}</span>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="flex items-center justify-between mb-1.5">
+                                <span class="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Current Calculation Formula & Steps:</span>
+                                <div class="flex items-center gap-2 text-[9px] font-mono text-gray-400 bg-brand-darkBg/60 border border-brand-border/40 px-2 py-0.5 rounded-md">
+                                    <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>comments</span>
+                                    <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-purple-400"></span>functions</span>
+                                    <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-sky-300"></span>vars</span>
+                                    <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span>ops</span>
+                                    <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-amber-300"></span>nums</span>
+                                </div>
+                            </div>
+                            <pre class="bg-[#0b0f19] border border-blue-900/40 p-3.5 rounded-xl font-mono text-[11.5px] leading-relaxed text-gray-100 overflow-x-auto whitespace-pre-wrap select-all shadow-inner border-l-4 border-l-blue-500">${highlightFormulaCode(meta.formula)}</pre>
+                        </div>
+                        <div>
+                            <div class="text-[10px] text-gray-400 mb-1 font-semibold uppercase tracking-wider">Create Custom/Edited Version:</div>
+                            <textarea id="detail-modal-formula-input" 
+                                      class="w-full bg-[#0b0f19] border border-brand-border rounded-xl p-3 font-mono text-[11px] text-blue-300 focus:outline-none focus:border-blue-500 transition resize-y shadow-inner" 
+                                      rows="2" placeholder="e.g., ${name} * 1.5">${name}</textarea>
+                            <p class="text-[10px] text-gray-400 mt-1 italic">
+                                <i class="fa-solid fa-code-fork text-[9px] mr-1 text-blue-400"></i> 
+                                Editing this built-in feature will create a new dynamic feature named <strong class="text-blue-300">"edited-${name}"</strong> in your Feature Directory.
+                            </p>
+                        </div>
+                    </div>
+                `;
+            }
+
+            const modal = document.getElementById('feature-detail-modal');
+            modal.style.display = 'flex';
+            setTimeout(() => {
+                modal.classList.remove('opacity-0', 'pointer-events-none');
+                modal.querySelector('.transform').classList.remove('scale-95');
+                modal.querySelector('.transform').classList.add('scale-100');
+            }, 10);
+        }
+
+        function closeFeatureDetailModal() {
+            const modal = document.getElementById('feature-detail-modal');
+            modal.classList.add('opacity-0', 'pointer-events-none');
+            modal.querySelector('.transform').classList.remove('scale-100');
+            modal.querySelector('.transform').classList.add('scale-95');
+            setTimeout(() => {
+                modal.style.display = 'none';
+                currentDetailFeature = null;
+            }, 300);
+        }
+
+        function saveModalCustomFormula() {
+            if (!currentDetailFeature) return;
+
+            const input = document.getElementById('detail-modal-formula-input');
+            const expr = input.value.trim();
+
+            if (!expr) {
+                showNotification("Validation Error", "Formula cannot be empty.", true);
+                return;
+            }
+
+            let savedName = currentDetailFeature;
+            let msg = `Calculation for '${currentDetailFeature}' saved successfully.`;
+
+            if (!customFormulas[currentDetailFeature]) {
+                // It was a built-in feature! Save as edited-*
+                savedName = 'edited-' + currentDetailFeature;
+                msg = `Saved as new dynamic feature '${savedName}'.`;
+            }
+
+            customFormulas[savedName] = expr;
+            if (!activeFeatures.includes(savedName)) {
+                activeFeatures.push(savedName);
+            }
+            saveCustomFormulasToStorage();
+
+            populateChecklist();
+            loadCustomFormulasFromStorage();
+
+            showNotification("Formula Saved", msg);
+            closeFeatureDetailModal();
+        }
+
+        // On document ready
+        document.addEventListener('DOMContentLoaded', () => {
+            loadCustomFormulasFromStorage();
+            fetchStatus();
+        });
+
+        function showNotification(title, desc, isError = false) {
+            const box = document.getElementById('notification-box');
+            const icon = document.getElementById('notif-icon');
+            const t = document.getElementById('notif-title');
+            const d = document.getElementById('notif-desc');
+
+            t.textContent = title;
+            d.textContent = desc;
+
+            if (isError) {
+                icon.className = "fa-solid fa-circle-xmark text-red-500 mt-0.5 text-lg";
+                box.className = "fixed bottom-5 right-5 z-50 max-w-sm glassmorphism p-4 rounded-xl border border-red-500/30 shadow-2xl flex items-start gap-3 transition";
+            } else {
+                icon.className = "fa-solid fa-circle-check text-green-400 mt-0.5 text-lg";
+                box.className = "fixed bottom-5 right-5 z-50 max-w-sm glassmorphism p-4 rounded-xl border border-green-500/30 shadow-2xl flex items-start gap-3 transition";
+            }
+
+            box.style.display = 'flex';
+            setTimeout(() => {
+                box.style.display = 'none';
+            }, 4000);
+        }
+
+        function showLoading(show, title = "Evaluating...", msg = "", showProgress = false) {
+            const modal = document.getElementById('loading-modal');
+            const t = document.getElementById('loading-title');
+            const m = document.getElementById('loading-message');
+            const progressContainer = document.getElementById('loading-progress-container');
+            const progressBar = document.getElementById('loading-progress-bar');
+
+            t.textContent = title;
+            m.textContent = msg;
+
+            if (showProgress) {
+                progressContainer.style.display = 'block';
+                progressBar.style.width = '0%';
+            } else {
+                progressContainer.style.display = 'none';
+            }
+
+            modal.style.display = show ? 'flex' : 'none';
+        }
+
+        async function fetchStatus() {
+            try {
+                const previouslyCheckedCustom = activeFeatures.filter(f => Object.keys(customFormulas).includes(f));
+                const isInitialLoad = activeFeatures.length === 0;
+
+                const res = await fetch('/api/playground/status');
+                const data = await res.json();
+                
+                availableFeatures = data.available_features || [];
+                activeFeatures = data.active_features || [];
+                loadedModelFeatures = data.loaded_model_features || [];
+                activeSessionPath = data.active_session || 'None';
+
+                // Merge custom formulas into activeFeatures
+                Object.keys(customFormulas).forEach(name => {
+                    if (isInitialLoad || previouslyCheckedCustom.includes(name)) {
+                        if (!activeFeatures.includes(name)) {
+                            activeFeatures.push(name);
+                        }
+                    }
+                });
+                 
+                 // Display model info
+                 const pathParts = data.active_model.split('/');
+                 document.getElementById('active-model-display').textContent = pathParts[pathParts.length - 1];
+                 document.getElementById('active-model-features-count').textContent = data.num_features + " Features";
+
+                 // Store predictions globally on load
+                 sessionsList = data.sessions || [];
+                 cvProbabilities = data.y_prob || [];
+                 cvGroundTruth = data.y_true || [];
+                 cvPredictions = data.y_pred || [];
+
+                 // Render scatter plot card
+                 const scatterCard = document.getElementById('scatter-plot-card');
+                 if (scatterCard) {
+                     scatterCard.style.display = 'block';
+                     
+                     const select = document.getElementById('scatter-session-select');
+                     if (select) {
+                         select.innerHTML = '';
+                         sessionsList.forEach((s, idx) => {
+                             const opt = document.createElement('option');
+                             opt.value = idx;
+                             opt.textContent = s.name;
+                             
+                             if (s.name.includes("Active Session")) {
+                                 opt.selected = true;
+                             }
+                             select.appendChild(opt);
+                         });
+                         
+                         drawScatterPlot();
+                     }
+                 }
+
+                 // Populate checklist
+                 populateChecklist();
+                 
+                 // Populate recompute select options
+                 populateRecomputeSelect();
+            } catch (err) {
+                console.error("Error fetching status:", err);
+                showNotification("Connection Error", "Could not fetch status from server.", true);
+            }
+        }
+
+        // 5-fold cross-validated SHAP feature importance rankings
+        const SHAP_RANKINGS = {
+            'roi_idx_norm': { rank: 1, shap: 1.21317 },
+            'npix': { rank: 2, shap: 0.64094 },
+            'range_fcorr': { rank: 3, shap: 0.62952 },
+            'mrs': { rank: 4, shap: 0.36641 },
+            'max_to_mean_f': { rank: 5, shap: 0.31088 },
+            'cv_f': { rank: 6, shap: 0.28301 },
+            'compact': { rank: 7, shap: 0.23986 },
+            'number_of_bright_pixels': { rank: 8, shap: 0.23505 },
+            'skew_fcorr_smooth_w11': { rank: 9, shap: 0.22941 },
+            'q10': { rank: 10, shap: 0.21629 },
+            'corr_f_fneu': { rank: 11, shap: 0.18634 },
+            'std_fcorr': { rank: 12, shap: 0.12228 },
+            'skew_fcorr_smooth_w5': { rank: 13, shap: 0.12170 },
+            'smoothness_ratio_w11': { rank: 14, shap: 0.09154 },
+            'q99': { rank: 15, shap: 0.09051 },
+            'q25': { rank: 16, shap: 0.08935 },
+            'solidity': { rank: 17, shap: 0.08427 },
+            'bright_pixels_ratio': { rank: 18, shap: 0.08238 },
+            'skew_fcorr': { rank: 19, shap: 0.08127 },
+            'q99_smooth_ratio': { rank: 20, shap: 0.07811 },
+            'skew_f': { rank: 21, shap: 0.07144 },
+            'fraction_active_k3': { rank: 22, shap: 0.06593 },
+            'skew_fneu': { rank: 23, shap: 0.06268 },
+            'range_f': { rank: 24, shap: 0.06222 },
+            'area_to_radius_sq': { rank: 25, shap: 0.05872 },
+            'peak_density': { rank: 26, shap: 0.05676 },
+            'std_f': { rank: 27, shap: 0.05270 },
+            'skew_diff_fcorr': { rank: 28, shap: 0.05192 },
+            'activity_ratio': { rank: 29, shap: 0.05174 },
+            'aspect_ratio': { rank: 30, shap: 0.04779 },
+            'max_width': { rank: 31, shap: 0.04636 },
+            'radius': { rank: 32, shap: 0.04564 },
+            'snr': { rank: 33, shap: 0.04556 },
+            'avg_asym': { rank: 34, shap: 0.04415 },
+            'q50': { rank: 35, shap: 0.04259 },
+            'smoothness_ratio_w5': { rank: 36, shap: 0.04024 },
+            'bright_pixels_to_radius_sq': { rank: 37, shap: 0.03796 },
+            'q75': { rank: 38, shap: 0.03608 },
+            'max_asym': { rank: 39, shap: 0.03434 },
+            'peak_to_q99_ratio': { rank: 40, shap: 0.03386 },
+            'peak_to_q95_ratio': { rank: 41, shap: 0.03041 },
+            'q95': { rank: 42, shap: 0.02939 },
+            'q90': { rank: 43, shap: 0.02759 }
+        };
+
+        function populateChecklist() {
+            const container = document.getElementById('features-checklist-container');
+            container.innerHTML = '';
+
+            const searchInput = document.getElementById('feature-search-input');
+            const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
+
+            const sortSelect = document.getElementById('feature-sort-mode');
+            const sortMode = sortSelect ? sortSelect.value : 'shap_desc';
+
+            // Filter built-in features
+            let displayList = availableFeatures.filter(feat => {
+                if (!query) return true;
+                return feat.toLowerCase().includes(query);
+            });
+
+            // Sort built-in features according to selected mode
+            displayList.sort((a, b) => {
+                const shapA = SHAP_RANKINGS[a] ? SHAP_RANKINGS[a].shap : 0.0;
+                const shapB = SHAP_RANKINGS[b] ? SHAP_RANKINGS[b].shap : 0.0;
+                
+                if (sortMode === 'shap_desc') {
+                    return shapB - shapA; // Highest SHAP first
+                } else if (sortMode === 'shap_asc') {
+                    return shapA - shapB; // Lowest SHAP first
+                } else if (sortMode === 'name_asc') {
+                    return a.localeCompare(b);
+                } else if (sortMode === 'active_first') {
+                    const isActA = activeFeatures.includes(a) ? 1 : 0;
+                    const isActB = activeFeatures.includes(b) ? 1 : 0;
+                    if (isActA !== isActB) return isActB - isActA;
+                    return shapB - shapA;
+                }
+                return shapB - shapA;
+            });
+
+            if (displayList.length === 0 && Object.keys(customFormulas).length === 0) {
+                container.innerHTML = '<div class="p-4 text-center text-xs text-gray-500">No matching features found.</div>';
+                return;
+            }
+
+            displayList.forEach(feat => {
+                const isActive = activeFeatures.includes(feat);
+                const isLoadedModelFeat = loadedModelFeatures.includes(feat);
+                const shapInfo = SHAP_RANKINGS[feat] || { rank: 99, shap: 0.0 };
+
+                const item = document.createElement('div');
+                item.className = "flex items-center justify-between p-2 rounded-xl hover:bg-brand-cardBg/60 border border-transparent hover:border-brand-border/40 transition";
+
+                const left = document.createElement('div');
+                left.className = "flex items-center gap-2.5 flex-1 min-w-0";
+
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.checked = isActive;
+                checkbox.className = "h-4 w-4 rounded border-brand-border bg-brand-darkBg text-purple-600 focus:ring-purple-500 focus:ring-offset-brand-darkBg cursor-pointer";
+                checkbox.id = `checkbox-${feat}`;
+                checkbox.onchange = () => toggleFeature(feat, checkbox.checked);
+
+                // Rank badge styling
+                const rankBadge = document.createElement('span');
+                if (shapInfo.rank <= 5) {
+                    rankBadge.className = "bg-purple-900/60 text-purple-200 border border-purple-500/50 font-bold px-1.5 py-0.5 rounded text-[10px] shrink-0 font-mono shadow-sm";
+                } else if (shapInfo.rank <= 15) {
+                    rankBadge.className = "bg-blue-900/60 text-blue-200 border border-blue-500/50 font-bold px-1.5 py-0.5 rounded text-[10px] shrink-0 font-mono";
+                } else if (shapInfo.rank <= 30) {
+                    rankBadge.className = "bg-emerald-950/60 text-emerald-300 border border-emerald-500/40 font-semibold px-1.5 py-0.5 rounded text-[10px] shrink-0 font-mono";
+                } else {
+                    rankBadge.className = "bg-gray-800/80 text-gray-400 border border-gray-700/80 font-normal px-1.5 py-0.5 rounded text-[10px] shrink-0 font-mono";
+                }
+                rankBadge.textContent = `#${shapInfo.rank}`;
+
+                const label = document.createElement('span');
+                label.className = `text-xs cursor-pointer transition truncate ${isActive ? 'text-gray-100 font-bold' : 'text-gray-400 font-medium'} hover:text-purple-300 hover:underline`;
+                label.textContent = feat;
+                label.onclick = () => openFeatureDetailModal(feat);
+                label.title = "Click to inspect exact calculation formula";
+
+                const infoIcon = document.createElement('i');
+                infoIcon.className = "fa-regular fa-circle-question text-gray-500 text-[11px] hover:text-purple-400 transition cursor-pointer shrink-0";
+                infoIcon.onclick = (e) => {
+                    e.stopPropagation();
+                    openFeatureDetailModal(feat);
+                };
+                infoIcon.title = "View formula and biological rationale";
+
+                const insertIcon = document.createElement('i');
+                insertIcon.className = "fa-solid fa-square-plus text-gray-500 text-[11px] hover:text-emerald-400 transition cursor-pointer shrink-0";
+                insertIcon.onclick = (e) => {
+                    e.stopPropagation();
+                    const exprInput = document.getElementById('new-formula-expr');
+                    const curVal = exprInput.value.trim();
+                    if (curVal === '') {
+                        exprInput.value = feat;
+                    } else {
+                        const lastChar = curVal.slice(-1);
+                        if (['+', '-', '*', '/', '('].includes(lastChar)) {
+                            exprInput.value = exprInput.value + ' ' + feat;
+                        } else {
+                            exprInput.value = exprInput.value + ' * ' + feat;
+                        }
+                    }
+                    exprInput.focus();
+                };
+                insertIcon.title = "Insert into dynamic formula input";
+
+                left.appendChild(checkbox);
+                left.appendChild(rankBadge);
+                left.appendChild(label);
+                left.appendChild(infoIcon);
+                left.appendChild(insertIcon);
+
+                const right = document.createElement('div');
+                right.className = "flex items-center gap-1.5 shrink-0 ml-2";
+
+                // SHAP impact value pill
+                const shapPill = document.createElement('span');
+                if (shapInfo.rank <= 5) {
+                    shapPill.className = "bg-purple-950/80 border border-purple-500/50 text-purple-300 text-[9.5px] font-mono font-bold px-1.5 py-0.5 rounded";
+                } else if (shapInfo.rank <= 15) {
+                    shapPill.className = "bg-blue-950/80 border border-blue-500/40 text-blue-300 text-[9.5px] font-mono font-semibold px-1.5 py-0.5 rounded";
+                } else {
+                    shapPill.className = "bg-gray-900 border border-gray-700/60 text-gray-400 text-[9.5px] font-mono px-1.5 py-0.5 rounded";
+                }
+                shapPill.textContent = `SHAP: ${shapInfo.shap.toFixed(4)}`;
+                right.appendChild(shapPill);
+
+                // Add active model badge
+                if (isLoadedModelFeat) {
+                    const badge = document.createElement('span');
+                    badge.className = "bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 px-1.5 py-0.5 rounded text-[8.5px] font-bold uppercase tracking-wider";
+                    badge.textContent = "Model";
+                    right.appendChild(badge);
+                }
+
+                item.appendChild(left);
+                item.appendChild(right);
+                container.appendChild(item);
+            });
+
+            // Add custom formulas
+            Object.keys(customFormulas).forEach(name => {
+                const isActive = activeFeatures.includes(name);
+
+                const item = document.createElement('div');
+                item.className = "flex items-center justify-between p-2 rounded-xl hover:bg-brand-cardBg/60 transition bg-purple-950/20 border border-purple-500/30";
+
+                const left = document.createElement('div');
+                left.className = "flex items-center gap-2.5 flex-1 min-w-0";
+
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.checked = isActive;
+                checkbox.className = "h-4 w-4 rounded border-brand-border bg-brand-darkBg text-purple-600 focus:ring-purple-500 focus:ring-offset-brand-darkBg cursor-pointer";
+                checkbox.id = `checkbox-${name}`;
+                checkbox.onchange = () => toggleFeature(name, checkbox.checked);
+
+                const customBadge = document.createElement('span');
+                customBadge.className = "bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold px-1.5 py-0.5 rounded text-[9.5px] font-mono shrink-0";
+                customBadge.textContent = "CUSTOM";
+
+                const label = document.createElement('span');
+                label.className = `text-xs cursor-pointer transition truncate ${isActive ? 'text-gray-100 font-bold' : 'text-gray-400 font-medium'} hover:text-purple-300 hover:underline`;
+                label.textContent = name;
+                label.onclick = () => openFeatureDetailModal(name);
+                label.title = "Click to view/edit formula and details";
+
+                const right = document.createElement('div');
+                right.className = "flex items-center gap-2 shrink-0 ml-2";
+
+                const badge = document.createElement('span');
+                badge.className = "bg-amber-500/20 border border-amber-500/30 text-amber-300 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider";
+                badge.textContent = "Custom";
+                right.appendChild(badge);
+
+                const removeBtn = document.createElement('button');
+                removeBtn.className = "text-rose-400 hover:text-rose-300 text-xs px-1";
+                removeBtn.innerHTML = '<i class="fa-solid fa-trash"></i>';
+                removeBtn.title = "Delete custom feature";
+                removeBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    removeCustomFormula(name);
+                };
+                right.appendChild(removeBtn);
+
+                item.appendChild(left);
+                item.appendChild(right);
+                container.appendChild(item);
+            });
+        }
+
+        function populateRecomputeSelect() {
+            const select = document.getElementById('recompute-feature-select');
+            select.innerHTML = '<option value="">-- Choose feature to recompute --</option>';
+
+            availableFeatures.forEach(feat => {
+                // Ignore morphological shape parameters that are static from stat.npy
+                if (['solidity', 'mrs', 'npix', 'aspect_ratio', 'radius', 'compact', 'number_of_bright_pixels', 'bright_pixels_ratio'].includes(feat)) return;
+                
+                const opt = document.createElement('option');
+                opt.value = feat;
+                opt.textContent = feat;
+                select.appendChild(opt);
+            });
+        }
+
+        function toggleFeature(name, isChecked) {
+            if (isChecked) {
+                if (!activeFeatures.includes(name)) {
+                    activeFeatures.push(name);
+                }
+            } else {
+                activeFeatures = activeFeatures.filter(f => f !== name);
+            }
+            populateChecklist();
+        }
+
+        function toggleAllFeatures(select) {
+            if (select) {
+                activeFeatures = [...availableFeatures, ...Object.keys(customFormulas)];
+            } else {
+                activeFeatures = [];
+            }
+            populateChecklist();
+        }
+
+        function getLevenshteinDistance(a, b) {
+            const matrix = [];
+            for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+            for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+            for (let i = 1; i <= b.length; i++) {
+                for (let j = 1; j <= a.length; j++) {
+                    if (b.charAt(i - 1) === a.charAt(j - 1)) {
+                        matrix[i][j] = matrix[i - 1][j - 1];
+                    } else {
+                        matrix[i][j] = Math.min(
+                            matrix[i - 1][j - 1] + 1,
+                            matrix[i][j - 1] + 1,
+                            matrix[i - 1][j] + 1
+                        );
+                    }
+                }
+            }
+            return matrix[b.length][a.length];
+        }
+
+        function findClosestMatch(word, list) {
+            let bestMatch = null;
+            let minDistance = 3;
+            for (const item of list) {
+                const dist = getLevenshteinDistance(word, item);
+                if (dist < minDistance) {
+                    minDistance = dist;
+                    bestMatch = item;
+                }
+            }
+            return bestMatch;
+        }
+
+        function addCustomFormula() {
+            const nameInput = document.getElementById('new-formula-name');
+            const exprInput = document.getElementById('new-formula-expr');
+            const name = nameInput.value.trim();
+            const expr = exprInput.value.trim();
+
+            if (!name || !expr) {
+                showNotification("Validation Error", "Please provide both feature name and formula.", true);
+                return;
+            }
+
+            // Regex validation for alpha-numeric + underscores
+            if (!/^[a-zA-Z0-9_]+$/.test(name)) {
+                showNotification("Validation Error", "Feature name must be alphanumeric with underscores only.", true);
+                return;
+            }
+
+            if (availableFeatures.includes(name) || customFormulas[name]) {
+                showNotification("Validation Error", "A feature with that name already exists.", true);
+                return;
+            }
+
+            customFormulas[name] = expr;
+            activeFeatures.push(name);
+            saveCustomFormulasToStorage();
+
+            populateChecklist();
+            loadCustomFormulasFromStorage();
+
+            nameInput.value = '';
+            exprInput.value = '';
+            showNotification("Formula Added", `Custom feature '${name}' is now active.`);
+        }
+
+        function removeCustomFormula(name) {
+            delete customFormulas[name];
+            activeFeatures = activeFeatures.filter(f => f !== name);
+            saveCustomFormulasToStorage();
+
+            populateChecklist();
+            loadCustomFormulasFromStorage();
+
+            showNotification("Formula Removed", `Custom feature '${name}' has been deleted.`);
+        }
+
+        let pollingActive = false;
+
+        async function pollProgress() {
+            if (!pollingActive) return;
+            try {
+                const res = await fetch('/api/playground/progress');
+                const data = await res.json();
+                
+                const progressBar = document.getElementById('loading-progress-bar');
+                const m = document.getElementById('loading-message');
+                
+                if (data.active) {
+                    progressBar.style.width = `${data.percent}%`;
+                    m.textContent = `${data.status}`;
+                }
+            } catch (e) {
+                console.error("Error fetching progress:", e);
+            }
+            
+            if (pollingActive) {
+                setTimeout(pollProgress, 1000);
+            }
+        }
+
+        function startProgressPolling() {
+            pollingActive = true;
+            setTimeout(pollProgress, 500);
+        }
+
+        function stopProgressPolling() {
+            pollingActive = false;
+        }
+
+        async function runEvaluation() {
+            showLoading(true, "Evaluating Feature Set...", "Loading sessions...", true);
+            startProgressPolling();
+            
+            try {
+                // Build request url query params
+                const featuresParam = activeFeatures.join(',');
+                const formulasParams = Object.keys(customFormulas).map(name => `${name}=${customFormulas[name]}`);
+                
+                let url = `/api/playground/run?features=${encodeURIComponent(featuresParam)}`;
+                formulasParams.forEach(f => {
+                    url += `&formulas=${encodeURIComponent(f)}`;
+                });
+
+                const res = await fetch(url);
+                const data = await res.json();
+                
+                stopProgressPolling();
+                showLoading(false);
+
+                if (data.error) {
+                    showNotification("Evaluation Failed", data.error, true);
+                    return;
+                }
+
+                lastCvSummary = data.cv_summary;
+                baselineSummary = data.baseline;
+
+                // Render metrics
+                renderMetricCard('f1', data.cv_summary.f1, data.cv_summary.f1_std, baselineSummary ? baselineSummary.f1 : null);
+                renderMetricCard('precision', data.cv_summary.precision, data.cv_summary.precision_std, baselineSummary ? baselineSummary.precision : null);
+                renderMetricCard('recall', data.cv_summary.recall, data.cv_summary.recall_std, baselineSummary ? baselineSummary.recall : null);
+
+                // Enable buttons
+                document.getElementById('baseline-btn').removeAttribute('disabled');
+                document.getElementById('retrain-btn').removeAttribute('disabled');
+
+                 // Render Diagnostics
+                 document.getElementById('diagnostics-row').style.display = 'grid';
+                 renderShapImportance(data.shap_importance);
+                 renderCulprits(data.fp_culprits, data.fn_culprits);
+ 
+                 // Store predictions globally
+                 sessionsList = data.sessions || [];
+                 cvProbabilities = data.y_prob || [];
+                 cvGroundTruth = data.y_true || [];
+                 cvPredictions = data.y_pred || [];
+ 
+                 // Render scatter plot card
+                 const scatterCard = document.getElementById('scatter-plot-card');
+                 if (scatterCard) {
+                     scatterCard.style.display = 'block';
+                     
+                     const select = document.getElementById('scatter-session-select');
+                     if (select) {
+                         select.innerHTML = '';
+                         sessionsList.forEach((s, idx) => {
+                             const opt = document.createElement('option');
+                             opt.value = idx;
+                             opt.textContent = s.name;
+                             
+                              if (s.name.includes("Active Session - Predicted")) {
+                                  opt.selected = true;
+                              }
+                              select.appendChild(opt);
+                          });
+                         
+                         drawScatterPlot();
+                     }
+                 }
+ 
+                 showNotification("Evaluation Complete", "Cross-validation results compiled successfully.");
+            } catch (err) {
+                stopProgressPolling();
+                showLoading(false);
+                showNotification("Connection Error", "Failed to contact cross-validation API.", true);
+            }
+        }
+
+        function renderMetricCard(metric, val, std, baselineVal) {
+            const valEl = document.getElementById(`${metric}-val`);
+            const stdEl = document.getElementById(`${metric}-std`);
+            const diffEl = document.getElementById(`${metric}-diff`);
+
+            valEl.textContent = (val * 100).toFixed(1) + "%";
+            stdEl.textContent = `Std Dev: ±${(std * 100).toFixed(2)}%`;
+
+            if (baselineVal !== null) {
+                const diff = val - baselineVal;
+                diffEl.textContent = (diff >= 0 ? "+" : "") + (diff * 100).toFixed(2) + "%";
+                if (diff >= 0.001) {
+                    diffEl.className = "text-xs font-bold text-green-400";
+                } else if (diff <= -0.001) {
+                    diffEl.className = "text-xs font-bold text-red-400";
+                } else {
+                    diffEl.className = "text-xs font-bold text-gray-400";
+                }
+            } else {
+                diffEl.textContent = "";
+            }
+        }
+
+        function renderShapImportance(importance) {
+            const container = document.getElementById('shap-importance-container');
+            container.innerHTML = '';
+
+            if (!importance || importance.length === 0) {
+                container.innerHTML = '<div class="text-xs text-gray-500 p-4 text-center">No SHAP data.</div>';
+                return;
+            }
+
+            const maxVal = Math.max(...importance.map(x => x[1]));
+
+            importance.slice(0, 15).forEach((item, idx) => {
+                const name = item[0];
+                const val = item[1];
+                const widthPercent = maxVal > 0 ? (val / maxVal * 100) : 0;
+
+                const row = document.createElement('div');
+                row.className = "space-y-1";
+                row.innerHTML = `
+                    <div class="flex justify-between text-xs font-semibold text-gray-300">
+                        <span>${idx+1}. ${name}</span>
+                        <span class="text-blue-400">${val.toFixed(5)}</span>
+                    </div>
+                    <div class="w-full bg-brand-darkBg/60 rounded-full h-2">
+                        <div class="bg-gradient-to-r from-blue-600 to-indigo-500 h-2 rounded-full transition-all duration-500" style="width: ${widthPercent}%"></div>
+                    </div>
+                `;
+                container.appendChild(row);
+            });
+        }
+
+        function renderCulprits(fp, fn) {
+            const fpBody = document.getElementById('fp-culprits-tbody');
+            const fnBody = document.getElementById('fn-culprits-tbody');
+
+            fpBody.innerHTML = '';
+            fnBody.innerHTML = '';
+
+            if (!fp || fp.length === 0) {
+                fpBody.innerHTML = '<tr><td colspan="4" class="py-2 text-center text-gray-500">No FP error culprits.</td></tr>';
+            } else {
+                fp.forEach(c => {
+                    const r = document.createElement('tr');
+                    r.className = "border-b border-brand-border/20 text-gray-300 font-normal hover:bg-brand-border/10";
+                    r.innerHTML = `
+                        <td class="py-2 font-mono text-[11px] text-gray-300">${c.feature}</td>
+                        <td class="py-2 text-right text-red-400 font-bold">${c.shap_diff >= 0 ? '+' : ''}${c.shap_diff.toFixed(4)}</td>
+                        <td class="py-2 text-right">${c.fp_mean_val.toFixed(3)}</td>
+                        <td class="py-2 text-right">${c.tn_mean_val.toFixed(3)}</td>
+                    `;
+                    fpBody.appendChild(r);
+                });
+            }
+
+            if (!fn || fn.length === 0) {
+                fnBody.innerHTML = '<tr><td colspan="4" class="py-2 text-center text-gray-500">No FN error culprits.</td></tr>';
+            } else {
+                fn.forEach(c => {
+                    const r = document.createElement('tr');
+                    r.className = "border-b border-brand-border/20 text-gray-300 font-normal hover:bg-brand-border/10";
+                    r.innerHTML = `
+                        <td class="py-2 font-mono text-[11px] text-gray-300">${c.feature}</td>
+                        <td class="py-2 text-right text-purple-400 font-bold">${c.shap_diff >= 0 ? '+' : ''}${c.shap_diff.toFixed(4)}</td>
+                        <td class="py-2 text-right">${c.fn_mean_val.toFixed(3)}</td>
+                        <td class="py-2 text-right">${c.tp_mean_val.toFixed(3)}</td>
+                    `;
+                    fnBody.appendChild(r);
+                });
+            }
+        }
+
+        async function setBaseline() {
+            if (!lastCvSummary) return;
+
+            showLoading(true, "Setting Baseline...", "Writing baseline performance file to disk.");
+            try {
+                const res = await fetch(`/api/playground/set_baseline?f1=${lastCvSummary.f1}&precision=${lastCvSummary.precision}&recall=${lastCvSummary.recall}&features=${encodeURIComponent(activeFeatures.join(','))}`);
+                const data = await res.json();
+                
+                showLoading(false);
+                if (data.status === 'success') {
+                    baselineSummary = data.baseline;
+                    showNotification("Baseline Set", `Baseline F1-Score set to ${(baselineSummary.f1 * 100).toFixed(1)}%.`);
+                    runEvaluation(); // Re-run to update diff indicators
+                } else {
+                    showNotification("Failed to Set Baseline", data.error || "Unknown error", true);
+                }
+            } catch (err) {
+                showLoading(false);
+                showNotification("Connection Error", "Failed to save baseline metrics.", true);
+            }
+        }
+
+        async function triggerRecompute() {
+            const select = document.getElementById('recompute-feature-select');
+            const feat = select.value;
+
+            if (!feat) {
+                showNotification("Selection Error", "Please select a feature to recompute.", true);
+                return;
+            }
+
+            showLoading(true, `Recomputing '${feat}'...`, "Loading raw traces for all 22 sessions in parallel, re-extracting this feature, and updating disk cache. This typically takes 10-15 seconds.");
+
+            try {
+                const res = await fetch(`/api/playground/recompute?feature_name=${encodeURIComponent(feat)}`);
+                const data = await res.json();
+
+                showLoading(false);
+                if (data.status === 'success') {
+                    showNotification("Recomputation Complete", `Successfully recomputed and updated cache for ${data.success_count}/${data.total_count} sessions.`);
+                    fetchStatus(); // Refresh checklist
+                } else {
+                    showNotification("Recomputation Failed", data.error || "Unknown error", true);
+                }
+            } catch (err) {
+                showLoading(false);
+                showNotification("Connection Error", "Failed to contact parallel recomputation engine.", true);
+            }
+        }
+
+        async function retrainModel() {
+            if (!activeFeatures || activeFeatures.length === 0) return;
+
+            const confirmRetrain = confirm("Are you sure you want to save this feature list to fe_definitions.py and retrain the final model on 100% of the dataset? This will overwrite the production pkl model.");
+            if (!confirmRetrain) return;
+
+            showLoading(true, "Retraining Production Model...", "Training final LightGBM model on all 67,778 ROIs, updating fe_definitions.py, and reloading model in memory. This typically takes 2-3 seconds.");
+
+            try {
+                const formulasParams = Object.keys(customFormulas).map(name => `${name}=${customFormulas[name]}`);
+                let url = `/api/playground/retrain?features=${encodeURIComponent(activeFeatures.join(','))}`;
+                formulasParams.forEach(f => {
+                    url += `&formulas=${encodeURIComponent(f)}`;
+                });
+                const res = await fetch(url);
+                const data = await res.json();
+
+                showLoading(false);
+                if (data.status === 'success') {
+                    showNotification("Model Retrained!", `Saved to ${data.retrained_model} and loaded successfully.`);
+                    fetchStatus(); // Refresh model info in UI
+                } else {
+                    showNotification("Retraining Failed", data.error || "Unknown error", true);
+                }
+            } catch (err) {
+                showLoading(false);
+                showNotification("Connection Error", "Failed to contact retraining API endpoint.", true);
+            }
+        }
+
+        function drawScatterPlot() {
+            const select = document.getElementById('scatter-session-select');
+            if (!select || select.value === '') return;
+            const idx = parseInt(select.value);
+            if (isNaN(idx) || idx < 0 || idx >= sessionsList.length) return;
+
+            const plotEl = document.getElementById('probability-scatter-plot');
+            if (plotEl) {
+                plotEl.className = "w-full h-[400px]";
+            }
+
+            const session = sessionsList[idx];
+            const start = session.start_idx;
+            const end = session.end_idx;
+            const N = session.total_rois;
+
+            const probs = cvProbabilities.slice(start, end);
+            const gt = cvGroundTruth.slice(start, end);
+            const preds = cvPredictions.slice(start, end);
+
+            const allZeroGT = gt.every(x => x === 0);
+            const useGTColors = !allZeroGT;
+
+            let tp_x = [], tp_y = [], tp_text = [];
+            let fp_x = [], fp_y = [], fp_text = [];
+            let tn_x = [], tn_y = [], tn_text = [];
+            let fn_x = [], fn_y = [], fn_text = [];
+
+            let pred_cell_x = [], pred_cell_y = [], pred_cell_text = [];
+            let pred_noise_x = [], pred_noise_y = [], pred_noise_text = [];
+
+            for (let i = 0; i < N; i++) {
+                const p = probs[i];
+                const g = gt[i];
+                const pred = preds[i];
+
+                const textLabel = `ROI ${i}<br>Prob: ${(p * 100).toFixed(1)}%<br>GT: ${useGTColors ? (g === 1 ? 'Cell' : 'Non-Cell') : 'N/A'}`;
+
+                if (useGTColors) {
+                    if (pred === 1 && g === 1) {
+                        tp_x.push(i);
+                        tp_y.push(p);
+                        tp_text.push(textLabel);
+                    } else if (pred === 1 && g === 0) {
+                        fp_x.push(i);
+                        fp_y.push(p);
+                        fp_text.push(textLabel);
+                    } else if (pred === 0 && g === 0) {
+                        tn_x.push(i);
+                        tn_y.push(p);
+                        tn_text.push(textLabel);
+                    } else if (pred === 0 && g === 1) {
+                        fn_x.push(i);
+                        fn_y.push(p);
+                        fn_text.push(textLabel);
+                    }
+                } else {
+                    if (pred === 1) {
+                        pred_cell_x.push(i);
+                        pred_cell_y.push(p);
+                        pred_cell_text.push(textLabel);
+                    } else {
+                        pred_noise_x.push(i);
+                        pred_noise_y.push(p);
+                        pred_noise_text.push(textLabel);
+                    }
+                }
+            }
+
+            let scatterTraces = [];
+
+            if (useGTColors) {
+                scatterTraces.push({
+                    x: tp_x, y: tp_y, text: tp_text,
+                    name: 'True Positives', type: 'scatter', mode: 'markers',
+                    marker: { color: '#10b981', size: 6, opacity: 0.8 },
+                    hoverinfo: 'text'
+                });
+                scatterTraces.push({
+                    x: fp_x, y: fp_y, text: fp_text,
+                    name: 'False Positives', type: 'scatter', mode: 'markers',
+                    marker: { color: '#f43f5e', size: 6, opacity: 0.8 },
+                    hoverinfo: 'text'
+                });
+                scatterTraces.push({
+                    x: fn_x, y: fn_y, text: fn_text,
+                    name: 'False Negatives', type: 'scatter', mode: 'markers',
+                    marker: { color: '#f59e0b', size: 6, opacity: 0.8 },
+                    hoverinfo: 'text'
+                });
+                scatterTraces.push({
+                    x: tn_x, y: tn_y, text: tn_text,
+                    name: 'True Negatives', type: 'scatter', mode: 'markers',
+                    marker: { color: '#64748b', size: 5, opacity: 0.4 },
+                    hoverinfo: 'text'
+                });
+            } else {
+                scatterTraces.push({
+                    x: pred_cell_x, y: pred_cell_y, text: pred_cell_text,
+                    name: 'Predicted Cells', type: 'scatter', mode: 'markers',
+                    marker: { color: '#3b82f6', size: 6, opacity: 0.8 },
+                    hoverinfo: 'text'
+                });
+                scatterTraces.push({
+                    x: pred_noise_x, y: pred_noise_y, text: pred_noise_text,
+                    name: 'Predicted Non-Cells', type: 'scatter', mode: 'markers',
+                    marker: { color: '#64748b', size: 5, opacity: 0.4 },
+                    hoverinfo: 'text'
+                });
+            }
+
+            const scatterLayout = {
+                autosize: true,
+                height: 400,
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                margin: { l: 50, r: 20, t: 15, b: 40 },
+                showlegend: true,
+                legend: {
+                    orientation: 'h',
+                    y: 1.15,
+                    x: 0.5,
+                    xanchor: 'center',
+                    font: { color: '#9ca3af', size: 10 }
+                },
+                xaxis: {
+                    title: 'ROI Index',
+                    gridcolor: '#1f2d47',
+                    tickfont: { color: '#9ca3af' },
+                    titlefont: { color: '#9ca3af', size: 11 }
+                },
+                yaxis: {
+                    title: 'AI CV Probability',
+                    range: [-0.02, 1.02],
+                    gridcolor: '#1f2d47',
+                    tickfont: { color: '#9ca3af' },
+                    titlefont: { color: '#9ca3af', size: 11 }
+                },
+                hovermode: 'closest'
+            };
+
+            Plotly.react('probability-scatter-plot', scatterTraces, scatterLayout, { responsive: true, displayModeBar: false });
+        }
+
+        window.addEventListener('resize', () => {
+            const plotEl = document.getElementById('probability-scatter-plot');
+            if (plotEl && plotEl.innerHTML) {
+                Plotly.Plots.resize(plotEl);
+            }
+        });
+    </script>
+</body>
+</html>
