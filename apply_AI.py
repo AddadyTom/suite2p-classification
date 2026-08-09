@@ -51,6 +51,16 @@ FEATURE_NAMES_38 = [
     'q10_norm', 'q25_norm', 'q50_norm', 'q75_norm', 'q90_norm', 'q95_norm', 'q99_norm'
 ]
 
+FEATURE_NAMES_30 = [
+    'area_to_radius_sq', 'aspect_ratio', 'bright_pixels_to_radius_sq', 'compact',
+    'corr_f_fneu', 'cv_f', 'max_width', 'mrs', 'npix',
+    'number_of_bright_pixels', 'peak_to_q95_ratio', 'peak_to_q99_ratio',
+    'q10', 'q25', 'q50', 'q75', 'q90', 'q95', 'q99',
+    'radius', 'range_f', 'range_fcorr', 'skew_diff_fcorr',
+    'skew_f', 'skew_fcorr', 'skew_fneu', 'snr', 'solidity',
+    'std_f', 'std_fcorr'
+]
+
 # ==========================================
 # 1. FEATURE EXTRACTION LOGIC
 # ==========================================
@@ -84,12 +94,14 @@ def extract_features(F, Fneu, stat, num_features_or_names, custom_features=None)
             feature_names = FEATURE_NAMES_26
         elif num_features_or_names == 27:
             feature_names = FEATURE_NAMES_27
+        elif num_features_or_names == 30:
+            feature_names = FEATURE_NAMES_30
         elif num_features_or_names == 38:
             feature_names = FEATURE_NAMES_38
         else:
-            raise ValueError(f"Unsupported number of features: {num_features_or_names}. Model must expect 24, 25, 26, 27 or 38 features.")
+            raise ValueError(f"Unsupported number of features: {num_features_or_names}. Model must expect 24, 25, 26, 27, 30 or 38 features.")
     else:
-        raise TypeError("num_features_or_names must be a list of names or an integer (24, 25, 26, 27, 38).")
+        raise TypeError("num_features_or_names must be a list of names or an integer (24, 25, 26, 27, 30, 38).")
         
     print(f"Extracting {len(feature_names)} features dynamically for {n_cells} ROIs...")
     
@@ -528,6 +540,8 @@ def apply_active_learning(session_path, model_spec='regular'):
             feature_names = FEATURE_NAMES_26
         elif num_features == 27:
             feature_names = FEATURE_NAMES_27
+        elif num_features == 30:
+            feature_names = FEATURE_NAMES_30
         elif num_features == 38:
             feature_names = FEATURE_NAMES_38
         else:
@@ -536,11 +550,13 @@ def apply_active_learning(session_path, model_spec='regular'):
     X = extract_features(F, Fneu, stat, feature_names, custom_features=custom_features)
     probs = model.predict_proba(X)[:, 1]
 
-    # Select optimal decision threshold based on feature layout (24, 25, 26, 27 or 38)
+    # Select optimal decision threshold based on feature layout (24, 25, 26, 27, 30 or 38)
     if num_features in (24, 25):
         threshold = 0.66
     elif num_features in (26, 27, 38):
         threshold = 0.69
+    elif num_features == 30:
+        threshold = 0.61
     else:
         # Default fallback
         threshold = 0.66
