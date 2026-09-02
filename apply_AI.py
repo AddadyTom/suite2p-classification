@@ -458,23 +458,19 @@ def suppress_duplicate_rois(stat, probs, preds, F, dist_threshold=15.0, corr_thr
 # ==========================================
 # 2. INFERENCE LOGIC
 # ==========================================
-def apply_active_learning(session_path, model_spec='regular'):
+def run_ai_pipeline(session_path, model_spec='regular', scaler_spec=None, save_iscell=True):
+    """
+    Unified single-source-of-truth inference pipeline for AI predictions on a Suite2p session.
+    Used by both apply_AI.py CLI and investigate_cell.py Web UI.
+    """
     session_path = Path(session_path)
     base_dir = Path(__file__).parent
     
-    print(f"Loading session data from {session_path}...")
-    try:
-        F = np.load(session_path / 'F.npy', mmap_mode='r')
-        Fneu = np.load(session_path / 'Fneu.npy', mmap_mode='r')
-        stat = np.load(session_path / 'stat.npy', allow_pickle=True)
-        iscell_path = session_path / 'iscell.npy'
-        iscell_exists = iscell_path.exists()
-        if not iscell_exists:
-            print("Notice: iscell.npy not found in session folder. A new one will be created.")
-            
-    except Exception as e:
-        print(f"Error loading files: {e}")
-        return
+    F = np.load(session_path / 'F.npy', mmap_mode='r')
+    Fneu = np.load(session_path / 'Fneu.npy', mmap_mode='r')
+    stat = np.load(session_path / 'stat.npy', allow_pickle=True)
+    iscell_path = session_path / 'iscell.npy'
+    iscell_exists = iscell_path.exists()
 
     # Map preset model names to paths
     model_map = {
@@ -482,23 +478,17 @@ def apply_active_learning(session_path, model_spec='regular'):
         'rich': base_dir / 'models' / 'rich' / 'suite2p_best_lgb.pkl',
     }
 
-    model_path = model_spec
-    if model_spec.lower() in model_map:
-        model_path = model_map[model_spec.lower()]
+    if isinstance(model_spec, Path):
+        model_path = model_spec
+    elif str(model_spec).lower() in model_map:
+        model_path = model_map[str(model_spec).lower()]
     else:
         model_path = Path(model_spec)
 
     if not model_path.exists():
-        print(f"Error: Model file '{model_path}' not found.")
-        print("Available presets: 'regular', 'rich'")
-        return
+        raise FileNotFoundError(f"Model file '{model_path}' not found.")
 
-    print(f"Loading model: {model_path}...")
-    try:
-        model = joblib.load(model_path)
-    except Exception as e:
-        print(f"Error loading model: {e}")
-        return
+    model = joblib.load(model_path)
 
     # Auto-detect features expected by the model
     if hasattr(model, 'n_features_in_'):
@@ -506,15 +496,12 @@ def apply_active_learning(session_path, model_spec='regular'):
     elif hasattr(model, 'n_features_'):
         num_features = model.n_features_
     else:
-        # Default fallback to regular model feature count
         num_features = 25
-        print("Warning: Could not detect feature size from model metadata. Defaulting to 25.")
 
     # Try to infer feature names list and custom formulas
     feature_names = None
     custom_features = {}
     
-    # Try loading sibling JSON metadata first (precise matching)
     meta_path = model_path.with_suffix('.json')
     meta_loaded = False
     if meta_path.exists():
@@ -528,12 +515,10 @@ def apply_active_learning(session_path, model_spec='regular'):
                     num_features = len(feature_names)
                 custom_features = meta_data.get('custom_features', {})
                 meta_loaded = True
-                print(f"Loaded feature names and custom formulas from metadata file: {meta_path.name}")
         except Exception as e:
             print(f"Warning: Failed to load sibling metadata JSON: {e}")
 
     if not meta_loaded and not feature_names:
-        # Look in model directory for any JSON file describing features
         model_dir = model_path.parent
         json_files = list(model_dir.glob("*.json"))
         for jf in json_files:
@@ -546,12 +531,10 @@ def apply_active_learning(session_path, model_spec='regular'):
                             feature_names = feats
                             custom_features = data.get('custom_features', {})
                             meta_loaded = True
-                            print(f"Loaded feature names from metadata file: {jf.name}")
                             break
             except:
                 pass
 
-    # Fallback to predefined lists if we still don't have feature names
     if not feature_names:
         if num_features == 24:
             feature_names = FEATURE_NAMES_24
@@ -568,10 +551,24 @@ def apply_active_learning(session_path, model_spec='regular'):
         else:
             feature_names = [f"feature_{i}" for i in range(num_features)]
 
-    X = extract_features(F, Fneu, stat, feature_names, custom_features=custom_features)
-    probs = model.predict_proba(X)[:, 1]
+    spks_path = session_path / 'spks.npy'
+    spks = np.load(spks_path, mmap_mode='r') if spks_path.exists() else None
 
-    # Select optimal decision threshold based on feature layout (24, 25, 26, 27, 30 or 38)
+    X = extract_features(F, Fneu, stat, feature_names, custom_features=custom_features)
+    
+    # Process scaler if provided
+    X_proc = X
+    scaler = None
+    if scaler_spec:
+        scaler_path = Path(scaler_spec) if not isinstance(scaler_spec, Path) else scaler_spec
+        if scaler_path.exists():
+            scaler = joblib.load(scaler_path)
+            if hasattr(scaler, 'transform'):
+                X_proc = scaler.transform(X)
+
+    probs = model.predict_proba(X_proc)[:, 1]
+
+    # Select optimal decision threshold based on feature layout
     if num_features in (24, 25):
         threshold = 0.66
     elif num_features in (26, 38):
@@ -581,41 +578,66 @@ def apply_active_learning(session_path, model_spec='regular'):
     elif num_features == 30:
         threshold = 0.61
     else:
-        # Default fallback
         threshold = 0.66
 
-    print(f"Using F1-optimized classification threshold: {threshold:.2f}")
     is_cell = np.zeros(len(probs))
     is_cell[probs >= threshold] = 1
 
     # Run duplicate ROI suppression (NMS) on predicted cells
     new_preds, suppressed = suppress_duplicate_rois(stat, probs, is_cell, F)
-    num_suppressed = np.sum(suppressed)
+    num_suppressed = int(np.sum(suppressed))
     if num_suppressed > 0:
         is_cell = new_preds
         probs[suppressed] = 0.0
-        print(f"Suppressed {num_suppressed} duplicate/overlapping ROIs.")
-    
-    print(f"\n=== ACTIVE LEARNING RESULTS ===")
-    print(f"Total ROIs analyzed: {len(probs)}")
-    print(f"Tagged as CELLS: {np.sum(is_cell == 1)}")
-    print(f"Tagged as ARTIFACTS: {np.sum(is_cell == 0)}")
-    
-    # Backup original iscell.npy if it exists
-    if iscell_exists:
-        backup_path = session_path / 'iscell_backup_before_AI.npy'
-        if not backup_path.exists():
-            shutil.copy(iscell_path, backup_path)
-            print(f"Backed up original iscell.npy to: {backup_path.name}")
-    
-    # Overwrite iscell.npy
-    iscell_new = np.zeros((len(probs), 2))
-    iscell_new[:, 0] = is_cell
-    iscell_new[:, 1] = probs
-    np.save(iscell_path, iscell_new)
-    
-    print("\n✅ SUCCESS: iscell.npy has been overwritten.")
-    print("Refresh your Suite2p GUI results to see the updated classifications!")
+
+    if save_iscell:
+        # Backup original iscell.npy if it exists and backup doesn't exist yet
+        if iscell_exists:
+            backup_path = session_path / 'iscell_backup_before_AI.npy'
+            if not backup_path.exists():
+                shutil.copy(iscell_path, backup_path)
+                print(f"Backed up original iscell.npy to: {backup_path.name}")
+        
+        # Overwrite iscell.npy
+        iscell_new = np.zeros((len(probs), 2))
+        iscell_new[:, 0] = is_cell
+        iscell_new[:, 1] = probs
+        np.save(iscell_path, iscell_new)
+        print(f"Saved predictions to {iscell_path.name} in session folder.")
+
+    return {
+        'is_cell': is_cell,
+        'probs': probs,
+        'threshold': threshold,
+        'num_suppressed': num_suppressed,
+        'model_path': model_path,
+        'feature_names': feature_names,
+        'X_extracted': X
+    }
+
+def apply_active_learning(session_path, model_spec='regular'):
+    session_path = Path(session_path)
+    print(f"Loading session data from {session_path}...")
+    try:
+        results = run_ai_pipeline(session_path, model_spec=model_spec, save_iscell=True)
+        probs = results['probs']
+        is_cell = results['is_cell']
+        threshold = results['threshold']
+        num_suppressed = results['num_suppressed']
+
+        print(f"Using F1-optimized classification threshold: {threshold:.2f}")
+        if num_suppressed > 0:
+            print(f"Suppressed {num_suppressed} duplicate/overlapping ROIs.")
+        
+        print(f"\n=== ACTIVE LEARNING RESULTS ===")
+        print(f"Total ROIs analyzed: {len(probs)}")
+        print(f"Tagged as CELLS: {np.sum(is_cell == 1)}")
+        print(f"Tagged as ARTIFACTS: {np.sum(is_cell == 0)}")
+        print("\n✅ SUCCESS: iscell.npy has been overwritten.")
+        print("Refresh your Suite2p GUI results to see the updated classifications!")
+    except Exception as e:
+        print(f"Error applying AI predictions: {e}")
+        return
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:

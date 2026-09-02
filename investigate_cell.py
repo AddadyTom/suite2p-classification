@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import joblib
+import shutil
 import numpy as np
 import urllib.parse
 from pathlib import Path
@@ -11,6 +12,7 @@ from scipy.signal import find_peaks, peak_widths
 import webbrowser
 import threading
 from fe_engine.fe_definitions import FEATURE_REGISTRY
+from apply_AI import run_ai_pipeline
 
 # ==========================================
 # 1. MASTER FEATURE DEFINITIONS & PRESETS
@@ -1138,7 +1140,7 @@ class SessionState:
         self.spks = np.load(spks_path, mmap_mode='r') if spks_path.exists() else None
         
         iscell_path = None
-        for l in ['iscell_final.npy', 'iscell_manual.npy']:
+        for l in ['iscell_final.npy', 'iscell_manual.npy', 'iscell_backup_before_AI.npy', 'iscell.npy']:
             if (self.session_path / l).exists():
                 iscell_path = self.session_path / l
                 break
@@ -1165,29 +1167,68 @@ class SessionState:
             return
             
         with self.lock:
-            # Double-check inside the lock
             if self.X_extracted is not None:
                 return
                 
-            print("Extracting features for all cells in session...")
-            n_cells = len(self.F)
-            self.X_extracted = extract_features_vectorized(
-                self.F, self.Fneu, self.spks, self.stat, self.feature_names,
-                custom_features=getattr(self, 'custom_features', None)
-            )
+            if self.session_path and self.model_path:
+                try:
+                    results = run_ai_pipeline(
+                        session_path=self.session_path,
+                        model_spec=self.model_path,
+                        scaler_spec=self.scaler_path,
+                        save_iscell=False
+                    )
+                    self.X_extracted = results['X_extracted']
+                    self.y_probs = results['probs']
+                    self.y_preds = results['is_cell']
+                except Exception as e:
+                    print(f"Warning: run_ai_pipeline execution failed, using fallback: {e}")
+                    n_cells = len(self.F)
+                    self.X_extracted = extract_features_vectorized(
+                        self.F, self.Fneu, self.spks, self.stat, self.feature_names,
+                        custom_features=getattr(self, 'custom_features', None)
+                    )
+                    X_proc = self.X_extracted
+                    if self.scaler is not None:
+                        X_proc = self.scaler.transform(X_proc)
+                    self.y_probs = self.model.predict_proba(X_proc)[:, 1]
+                    self.y_preds = (self.y_probs >= 0.5).astype(int)
+            else:
+                self.X_extracted = extract_features_vectorized(
+                    self.F, self.Fneu, self.spks, self.stat, self.feature_names,
+                    custom_features=getattr(self, 'custom_features', None)
+                )
+                X_proc = self.X_extracted
+                if self.scaler is not None:
+                    X_proc = self.scaler.transform(X_proc)
+                self.y_probs = self.model.predict_proba(X_proc)[:, 1]
+                self.y_preds = (self.y_probs >= 0.5).astype(int)
             
-            if self.ref_means is None:
+            if self.ref_means is None and self.X_extracted is not None:
                 self.ref_means = np.mean(self.X_extracted, axis=0)
                 self.ref_cells_means = np.mean(self.X_extracted[self.y_true == 1], axis=0) if np.sum(self.y_true == 1) > 0 else self.ref_means
                 self.ref_noncells_means = np.mean(self.X_extracted[self.y_true == 0], axis=0) if np.sum(self.y_true == 0) > 0 else self.ref_means
                 print("Calculated reference averages from session.")
 
-            X_proc = self.X_extracted
-            if self.scaler is not None:
-                X_proc = self.scaler.transform(X_proc)
-                
-            self.y_probs = self.model.predict_proba(X_proc)[:, 1]
-            self.y_preds = (self.y_probs >= 0.5).astype(int)
+    def save_iscell_to_data_dir(self):
+        if self.session_path is None or self.model_path is None:
+            return False
+            
+        try:
+            results = run_ai_pipeline(
+                session_path=self.session_path,
+                model_spec=self.model_path,
+                scaler_spec=self.scaler_path,
+                save_iscell=True
+            )
+            self.X_extracted = results['X_extracted']
+            self.y_probs = results['probs']
+            self.y_preds = results['is_cell']
+            print(f"Saved AI model predictions ({int(np.sum(self.y_preds))} cells) to iscell.npy in {self.session_path.name}")
+            return True
+        except Exception as e:
+            print(f"Error saving AI model predictions to data directory: {e}")
+            return False
         
     def get_batch_explanations(self, indices):
         if self.X_extracted is None:
@@ -1527,16 +1568,19 @@ class DashHandler(BaseHTTPRequestHandler):
                 if model_name:
                     state.load_model(model_name, scaler_name)
                     
+                iscell_saved = False
                 if session_path:
                     state.load_session(session_path)
                     state.process_all_cells()
+                    iscell_saved = state.save_iscell_to_data_dir()
                     
                 self.send_json({
                     'status': 'success',
                     'active_model': str(state.model_path) if state.model_path else None,
                     'active_scaler': str(state.scaler_path) if state.scaler_path else None,
                     'active_session': str(state.session_path) if state.session_path else None,
-                    'num_features': state.num_features
+                    'num_features': state.num_features,
+                    'iscell_saved': iscell_saved
                 })
             except Exception as e:
                 self.send_error_json(str(e))
@@ -3087,6 +3131,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     alert("Error: " + data.error);
                 } else {
                     await loadSessionInfo();
+                    if (data.iscell_saved) {
+                        console.log("Updated iscell.npy saved to session directory for Suite2p GUI.");
+                    }
                 }
             } catch(e) {
                 alert("Error applying settings: " + e);
