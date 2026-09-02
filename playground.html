@@ -508,7 +508,7 @@
 
             const VARS = new Set([
                 'Fcorr', 'Fneu', 'F', 'npix', 'radius', 'solidity', 'mrs', 'compact', 'aspect_ratio', 
-                'number_of_bright_pixels', 'bright_pixels_ratio', 'area_to_radius_sq', 'bright_pixels_to_radius_sq', 
+                'bright_pixels_ratio', 'area_to_radius_sq', 'bright_pixels_to_radius_sq', 
                 'roi_idx_norm', 'roi_idx_norm_3bin', 'diff_Fcorr', 'F_smooth', 'sorted_Fcorr', 'std_below', 
                 'std_above', 'threshold', 'denom', 'max_F', 'mean_F', 'std_F', 'std_Fneu', 'std_raw', 
                 'std_smooth', 'peaks', 'val_raw', 'val_smooth', 'peak_diff', 'q_diff', 'rise_width', 
@@ -626,14 +626,7 @@
                 helpful: "Provides a clean, interpretable physical scale constraint for the cellular soma.",
                 downside: "Fails to accurately represent cells with irregular or highly asymmetric non-elliptical boundaries."
             },
-            'number_of_bright_pixels': {
-                cat: "Spatial & Morphology",
-                summary: "Counts pixels in the cell ROI whose spatial weights exceed 10% of the peak weight.",
-                formula: "# 1. Inputs:\n# stat = Suite2p dictionary for cell ROI from stat.npy (contains pixel weights 'lam')\n\n# 2. Calculation:\nlam = stat['lam']\nnumber_of_bright_pixels = int(np.sum(lam > 0.1 * np.max(lam)))",
-                bio: "In genuine neurons, GCaMP expression is concentrated in a bright cytoplasmic shell around the nucleus. The spatial weights (lambda) of the pixels should have a dense, highly weighted core rather than a diffuse or flat distribution.",
-                helpful: "Highly effective at identifying the dense core mass of a cell, filtering out diffuse neuropil or weak background patches.",
-                downside: "Vulnerable to low signal-to-noise ratio. In dim cells with few photons, the spatial weights can be extremely noisy, leading to unstable core mass estimation."
-            },
+
             'bright_pixels_ratio': {
                 cat: "Spatial & Morphology",
                 summary: "Calculates the fraction of total cell pixels belonging to the bright cytoplasmic core.",
@@ -1220,7 +1213,6 @@
             'max_to_mean_f': { rank: 5, shap: 0.31088 },
             'cv_f': { rank: 6, shap: 0.28301 },
             'compact': { rank: 7, shap: 0.23986 },
-            'number_of_bright_pixels': { rank: 8, shap: 0.23505 },
             'skew_fcorr_smooth_w11': { rank: 9, shap: 0.22941 },
             'q10': { rank: 10, shap: 0.21629 },
             'corr_f_fneu': { rank: 11, shap: 0.18634 },
@@ -1455,7 +1447,7 @@
 
             availableFeatures.forEach(feat => {
                 // Ignore morphological shape parameters that are static from stat.npy
-                if (['solidity', 'mrs', 'npix', 'aspect_ratio', 'radius', 'compact', 'number_of_bright_pixels', 'bright_pixels_ratio'].includes(feat)) return;
+                if (['solidity', 'mrs', 'npix', 'aspect_ratio', 'radius', 'compact', 'bright_pixels_ratio'].includes(feat)) return;
                 
                 const opt = document.createElement('option');
                 opt.value = feat;

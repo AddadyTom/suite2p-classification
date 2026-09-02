@@ -18,12 +18,13 @@ from apply_AI import run_ai_pipeline
 # 1. MASTER FEATURE DEFINITIONS & PRESETS
 # ==========================================
 
+BASE_DIR = Path(__file__).parent.resolve()
+
 MASTER_FEATURE_DESCS = {
     'skew_spatial': 'Spatial skewness of cell pixels. Higher values indicate uneven intensity.',
     'compact': 'Spatial compactness. Measures circularity; real cells are circular.',
     'npix': 'Number of pixels. Indicates the physical size of the ROI.',
-    'number_of_bright_pixels': 'Number of pixels in the ROI carrying significant weight (lam > 0.1 * max_lam).',
-    'bright_pixels_ratio': 'Ratio of bright pixels to total pixels in the ROI (number_of_bright_pixels / npix).',
+    'bright_pixels_ratio': 'Ratio of bright pixels to total pixels in the ROI (bright_pixels / npix).',
     'max_to_mean_f': 'Dynamic range ratio (Max F / Mean F). Measures peak transient height relative to baseline.',
     'cv_f': 'Coefficient of variation (Std F / Mean F). Scale-free measurement of trace dynamics.',
     'aspect_ratio': 'Aspect ratio of bounding box. Real cells tend to be close to 1.0.',
@@ -925,13 +926,13 @@ class SessionState:
         self.ref_noncells_means = None
         
     def scan_models(self):
-        dir_path = Path("/home/tomer/Documents/suite2p-iscell-prediction")
+        dir_path = BASE_DIR
         models = [str(f.relative_to(dir_path)) for f in dir_path.rglob("*.pkl") if "scaler" not in f.name and not any("venv" in p for p in f.parts)]
         scalers = [str(f.relative_to(dir_path)) for f in dir_path.rglob("*scaler*.pkl") if not any("venv" in p for p in f.parts)]
         return sorted(models), sorted(scalers)
 
     def load_model(self, model_name, scaler_name=None):
-        dir_path = Path("/home/tomer/Documents/suite2p-iscell-prediction")
+        dir_path = BASE_DIR
         
         m_path = Path(model_name)
         if m_path.is_absolute() and m_path.exists():
@@ -1100,7 +1101,7 @@ class SessionState:
         self.load_dataset_averages()
 
     def load_dataset_averages(self):
-        dir_path = Path("/home/tomer/Documents/suite2p-iscell-prediction")
+        dir_path = BASE_DIR
         if self.num_features in (24, 27, 28):
             dataset_file = dir_path / "X_all_stav.npy"
             labels_file = dir_path / "y_all_stav.npy"
@@ -1490,7 +1491,7 @@ def generate_cluster_label(top_features, category):
     primary_feature = top_features[0][0]
     secondary_feature = top_features[1][0] if len(top_features) > 1 else ""
     
-    spatial_features = {'mrs', 'solidity', 'npix', 'aspect_ratio', 'radius', 'compact', 'skew_spatial', 'number_of_bright_pixels'}
+    spatial_features = {'mrs', 'solidity', 'npix', 'aspect_ratio', 'radius', 'compact', 'skew_spatial', 'bright_pixels_ratio'}
     trace_features = {'skew_f', 'std_f', 'max_to_mean_f', 'cv_f', 'skew_fcorr', 'std_fcorr', 'q90', 'q95', 'q99', 'range_fcorr', 'snr', 'activity_ratio', 'peak_density'}
     neuropil_features = {'corr_f_fneu', 'skew_fneu'}
     index_features = {'roi_idx_norm', 'roi_idx_norm_3bin', 'roi_idx_raw'}
@@ -1571,7 +1572,6 @@ class DashHandler(BaseHTTPRequestHandler):
                 iscell_saved = False
                 if session_path:
                     state.load_session(session_path)
-                    state.process_all_cells()
                     iscell_saved = state.save_iscell_to_data_dir()
                     
                 self.send_json({
@@ -1887,7 +1887,7 @@ class DashHandler(BaseHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header('Content-type', 'text/html; charset=utf-8')
                 self.end_headers()
-                pg_path = Path("/home/tomer/Documents/suite2p-iscell-prediction/playground.html")
+                pg_path = BASE_DIR / "playground.html"
                 with open(pg_path, 'r', encoding='utf-8') as f:
                     html_content = f.read()
                 self.wfile.write(html_content.encode('utf-8'))
@@ -1908,7 +1908,7 @@ class DashHandler(BaseHTTPRequestHandler):
                 
                 # Fetch baseline/active model predictions for all cached sessions
                 from fe_engine.fe_loop_runner import load_preprocessed_data
-                workspace_dir = Path("/home/tomer/Documents/suite2p-iscell-prediction")
+                workspace_dir = BASE_DIR
                 cache_dir = workspace_dir / "preprocessed_cache"
                 sessions = load_preprocessed_data(cache_dir)
                 
@@ -2302,7 +2302,7 @@ class DashHandler(BaseHTTPRequestHandler):
                 from fe_engine.fe_definitions import FEATURE_REGISTRY, safe_eval_formula
                 import fe_engine.fe_definitions
                 from fe_engine.fe_loop_runner import load_preprocessed_data, extract_features_dataset, update_definitions_file
-                workspace_dir = Path("/home/tomer/Documents/suite2p-iscell-prediction")
+                workspace_dir = BASE_DIR
                 cache_dir = workspace_dir / "preprocessed_cache"
                 
                 sessions = load_preprocessed_data(cache_dir)
@@ -4415,7 +4415,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
 def run_server(port=5000):
     # Determine default model to load
-    dir_path = Path("/home/tomer/Documents/suite2p-iscell-prediction")
+    dir_path = BASE_DIR
     
     # Pre-load best LGB if available, else MLP
     models = [str(f.relative_to(dir_path)) for f in dir_path.rglob("*.pkl") if "scaler" not in f.name and not any("venv" in p for p in f.parts)]

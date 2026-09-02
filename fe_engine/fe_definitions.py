@@ -309,7 +309,7 @@ FEATURE_REGISTRY = {
 ACTIVE_FEATURES = [
     'area_to_radius_sq', 'aspect_ratio', 'bright_pixels_to_radius_sq', 'compact',
     'corr_f_fneu', 'max_width', 'mrs',
-    'number_of_bright_pixels', 'peak_to_q95_ratio', 'peak_to_q99_ratio',
+    'peak_to_q95_ratio', 'peak_to_q99_ratio',
     'q10', 'q25', 'q50', 'q75', 'q90', 'q95', 'q99',
     'radius', 'range_f', 'range_fcorr', 'skew_diff_fcorr',
     'skew_f', 'skew_fcorr', 'skew_fneu', 'solidity',
