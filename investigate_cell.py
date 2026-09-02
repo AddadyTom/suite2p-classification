@@ -2740,10 +2740,17 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             <div class="space-y-6 mt-6">
                 <!-- Session Probability Distribution & Clusters -->
                 <section class="glassmorphism p-5 rounded-2xl">
-                    <div class="flex justify-between items-center mb-4">
+                    <div class="flex justify-between items-center mb-4 flex-wrap gap-4">
                         <div>
                             <h3 class="text-xs font-semibold uppercase tracking-wider text-gray-400">Session Probability Distribution & ROI Clusters</h3>
                             <p class="text-xs text-gray-500 mt-1">Interactive overview of all predictions in the session. Click any point on the scatter plot to jump directly to that ROI.</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="hide-threshold-toggle" class="sr-only peer" onchange="plotSessionProbabilities()">
+                                <div class="w-9 h-5 bg-brand-darkBg border border-brand-border rounded-full peer peer-focus:outline-none peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-gray-400 after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600 peer-checked:after:bg-white"></div>
+                                <span class="ml-2 text-xs font-semibold text-gray-400">Hide Threshold & Color by GT</span>
+                            </label>
                         </div>
                     </div>
                     <div class="bg-brand-darkBg/30 border border-brand-border/40 rounded-xl p-3">
@@ -3531,11 +3538,17 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             const threshold = activeThreshold;
             const N = sessionInfo.total_rois;
 
+            const hideThresholdEl = document.getElementById('hide-threshold-toggle');
+            const hideThreshold = hideThresholdEl ? hideThresholdEl.checked : false;
+
             // Arrays to hold data for traces
             let tp_x = [], tp_y = [], tp_text = [];
             let fp_x = [], fp_y = [], fp_text = [];
             let tn_x = [], tn_y = [], tn_text = [];
             let fn_x = [], fn_y = [], fn_text = [];
+
+            let gt_cell_x = [], gt_cell_y = [], gt_cell_text = [];
+            let gt_nocell_x = [], gt_nocell_y = [], gt_nocell_text = [];
 
             let pred_cell_x = [], pred_cell_y = [], pred_cell_text = [];
             let pred_noise_x = [], pred_noise_y = [], pred_noise_text = [];
@@ -3548,22 +3561,34 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 const textLabel = `ROI ${i}<br>Prob: ${(p * 100).toFixed(1)}%<br>GT: ${hasGT ? (g === 1 ? 'Cell' : 'Non-Cell') : 'N/A'}`;
 
                 if (hasGT) {
-                    if (pred === 1 && g === 1) {
-                        tp_x.push(i);
-                        tp_y.push(p);
-                        tp_text.push(textLabel);
-                    } else if (pred === 1 && g === 0) {
-                        fp_x.push(i);
-                        fp_y.push(p);
-                        fp_text.push(textLabel);
-                    } else if (pred === 0 && g === 0) {
-                        tn_x.push(i);
-                        tn_y.push(p);
-                        tn_text.push(textLabel);
-                    } else if (pred === 0 && g === 1) {
-                        fn_x.push(i);
-                        fn_y.push(p);
-                        fn_text.push(textLabel);
+                    if (hideThreshold) {
+                        if (g === 1) {
+                            gt_cell_x.push(i);
+                            gt_cell_y.push(p);
+                            gt_cell_text.push(textLabel);
+                        } else {
+                            gt_nocell_x.push(i);
+                            gt_nocell_y.push(p);
+                            gt_nocell_text.push(textLabel);
+                        }
+                    } else {
+                        if (pred === 1 && g === 1) {
+                            tp_x.push(i);
+                            tp_y.push(p);
+                            tp_text.push(textLabel);
+                        } else if (pred === 1 && g === 0) {
+                            fp_x.push(i);
+                            fp_y.push(p);
+                            fp_text.push(textLabel);
+                        } else if (pred === 0 && g === 0) {
+                            tn_x.push(i);
+                            tn_y.push(p);
+                            tn_text.push(textLabel);
+                        } else if (pred === 0 && g === 1) {
+                            fn_x.push(i);
+                            fn_y.push(p);
+                            fn_text.push(textLabel);
+                        }
                     }
                 } else {
                     if (pred === 1) {
@@ -3581,30 +3606,45 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             let scatterTraces = [];
 
             if (hasGT) {
-                scatterTraces.push({
-                    x: tp_x, y: tp_y, text: tp_text,
-                    name: 'True Positives', type: 'scatter', mode: 'markers',
-                    marker: { color: '#10b981', size: 6, opacity: 0.8 },
-                    hoverinfo: 'text'
-                });
-                scatterTraces.push({
-                    x: fp_x, y: fp_y, text: fp_text,
-                    name: 'False Positives', type: 'scatter', mode: 'markers',
-                    marker: { color: '#f43f5e', size: 6, opacity: 0.8 },
-                    hoverinfo: 'text'
-                });
-                scatterTraces.push({
-                    x: fn_x, y: fn_y, text: fn_text,
-                    name: 'False Negatives', type: 'scatter', mode: 'markers',
-                    marker: { color: '#f59e0b', size: 6, opacity: 0.8 },
-                    hoverinfo: 'text'
-                });
-                scatterTraces.push({
-                    x: tn_x, y: tn_y, text: tn_text,
-                    name: 'True Negatives', type: 'scatter', mode: 'markers',
-                    marker: { color: '#64748b', size: 5, opacity: 0.4 },
-                    hoverinfo: 'text'
-                });
+                if (hideThreshold) {
+                    scatterTraces.push({
+                        x: gt_cell_x, y: gt_cell_y, text: gt_cell_text,
+                        name: 'Ground Truth: Cell', type: 'scatter', mode: 'markers',
+                        marker: { color: '#10b981', size: 6, opacity: 0.8 },
+                        hoverinfo: 'text'
+                    });
+                    scatterTraces.push({
+                        x: gt_nocell_x, y: gt_nocell_y, text: gt_nocell_text,
+                        name: 'Ground Truth: Non-Cell', type: 'scatter', mode: 'markers',
+                        marker: { color: '#f43f5e', size: 6, opacity: 0.8 },
+                        hoverinfo: 'text'
+                    });
+                } else {
+                    scatterTraces.push({
+                        x: tp_x, y: tp_y, text: tp_text,
+                        name: 'True Positives', type: 'scatter', mode: 'markers',
+                        marker: { color: '#10b981', size: 6, opacity: 0.8 },
+                        hoverinfo: 'text'
+                    });
+                    scatterTraces.push({
+                        x: fp_x, y: fp_y, text: fp_text,
+                        name: 'False Positives', type: 'scatter', mode: 'markers',
+                        marker: { color: '#f43f5e', size: 6, opacity: 0.8 },
+                        hoverinfo: 'text'
+                    });
+                    scatterTraces.push({
+                        x: fn_x, y: fn_y, text: fn_text,
+                        name: 'False Negatives', type: 'scatter', mode: 'markers',
+                        marker: { color: '#f59e0b', size: 6, opacity: 0.8 },
+                        hoverinfo: 'text'
+                    });
+                    scatterTraces.push({
+                        x: tn_x, y: tn_y, text: tn_text,
+                        name: 'True Negatives', type: 'scatter', mode: 'markers',
+                        marker: { color: '#64748b', size: 5, opacity: 0.4 },
+                        hoverinfo: 'text'
+                    });
+                }
             } else {
                 scatterTraces.push({
                     x: pred_cell_x, y: pred_cell_y, text: pred_cell_text,
@@ -3641,6 +3681,24 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 });
             }
 
+            const shapes = [];
+            if (!hideThreshold) {
+                shapes.push({
+                    type: 'line',
+                    xref: 'paper',
+                    yref: 'y',
+                    x0: 0,
+                    y0: threshold,
+                    x1: 1,
+                    y1: threshold,
+                    line: {
+                        color: '#fbbf24',
+                        width: 1.5,
+                        dash: 'dash'
+                    }
+                });
+            }
+
             const scatterLayout = {
                 autosize: true,
                 height: 450,
@@ -3670,22 +3728,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 },
                 hovermode: 'closest',
                 clickmode: 'event+select',
-                shapes: [
-                    {
-                        type: 'line',
-                        xref: 'paper',
-                        yref: 'y',
-                        x0: 0,
-                        y0: threshold,
-                        x1: 1,
-                        y1: threshold,
-                        line: {
-                            color: '#fbbf24',
-                            width: 1.5,
-                            dash: 'dash'
-                        }
-                    }
-                ]
+                shapes: shapes
             };
 
             Plotly.react('probability-scatter-plot', scatterTraces, scatterLayout, { responsive: true, displayModeBar: false });
