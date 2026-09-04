@@ -120,7 +120,7 @@ def train_and_save():
     final_model.fit(X, y, feature_name=ACTIVE_FEATURES)
     
     # Save model and metadata config
-    model_dir = Path("models/regular")
+    model_dir = Path(__file__).parent.resolve() / "models/regular"
     model_dir.mkdir(parents=True, exist_ok=True)
     
     model_path = model_dir / "suite2p_best_lgb.pkl"

@@ -7,7 +7,6 @@
         "corr_f_fneu",
         "max_width",
         "mrs",
-        "number_of_bright_pixels",
         "peak_to_q95_ratio",
         "peak_to_q99_ratio",
         "q10",
