@@ -1,4 +1,6 @@
 {
+    "name": "Production LightGBM (26 Features)",
+    "description": "Retrained production model on 19 STAV sessions without number_of_bright_pixels. Achieves 0.84 CV F1 score.",
     "active_features": [
         "area_to_radius_sq",
         "aspect_ratio",

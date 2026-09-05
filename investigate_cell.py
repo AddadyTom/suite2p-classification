@@ -929,7 +929,55 @@ class SessionState:
         dir_path = BASE_DIR
         models = [str(f.relative_to(dir_path)) for f in dir_path.rglob("*.pkl") if "scaler" not in f.name and not any("venv" in p for p in f.parts)]
         scalers = [str(f.relative_to(dir_path)) for f in dir_path.rglob("*scaler*.pkl") if not any("venv" in p for p in f.parts)]
-        return sorted(models), sorted(scalers)
+        
+        model_details = []
+        for m_str in sorted(models):
+            p = dir_path / m_str
+            json_p = p.with_suffix('.json')
+            meta = {}
+            if json_p.exists():
+                try:
+                    with open(json_p, 'r') as f_json:
+                        meta = json.load(f_json)
+                except Exception:
+                    pass
+            
+            name = meta.get('name') or p.stem.replace('_', ' ').title()
+            desc = meta.get('description') or 'Custom trained cell classification model.'
+            active_feats = meta.get('active_features') or meta.get('features') or []
+            
+            model_details.append({
+                'path': m_str,
+                'filename': p.name,
+                'name': name,
+                'description': desc,
+                'active_features': active_feats,
+                'feature_count': len(active_feats),
+                'custom_features': meta.get('custom_features', {})
+            })
+            
+        return sorted(models), sorted(scalers), model_details
+
+    def get_active_model_info(self):
+        meta = {}
+        if self.model_path:
+            json_p = self.model_path.with_suffix('.json')
+            if json_p.exists():
+                try:
+                    with open(json_p, 'r') as f:
+                        meta = json.load(f)
+                except Exception:
+                    pass
+        active_feats = meta.get('active_features') or (self.feature_names if hasattr(self, 'feature_names') and self.feature_names else [])
+        return {
+            'path': str(self.model_path) if self.model_path else '',
+            'filename': self.model_path.name if self.model_path else '',
+            'name': meta.get('name') or (self.model_path.stem.replace('_', ' ').title() if self.model_path else 'No Model Loaded'),
+            'description': meta.get('description') or 'Custom trained model.',
+            'active_features': active_feats,
+            'feature_count': len(active_feats),
+            'custom_features': meta.get('custom_features', {})
+        }
 
     def load_model(self, model_name, scaler_name=None):
         dir_path = BASE_DIR
@@ -1205,10 +1253,11 @@ class SessionState:
                 self.y_probs = self.model.predict_proba(X_proc)[:, 1]
                 self.y_preds = (self.y_probs >= 0.5).astype(int)
             
-            if self.ref_means is None and self.X_extracted is not None:
+            if (self.ref_means is None or len(self.ref_means) != self.num_features or self.ref_cells_means is None or self.ref_noncells_means is None) and self.X_extracted is not None:
                 self.ref_means = np.mean(self.X_extracted, axis=0)
-                self.ref_cells_means = np.mean(self.X_extracted[self.y_true == 1], axis=0) if np.sum(self.y_true == 1) > 0 else self.ref_means
-                self.ref_noncells_means = np.mean(self.X_extracted[self.y_true == 0], axis=0) if np.sum(self.y_true == 0) > 0 else self.ref_means
+                has_gt = hasattr(self, 'y_true') and self.y_true is not None
+                self.ref_cells_means = np.mean(self.X_extracted[self.y_true == 1], axis=0) if has_gt and np.sum(self.y_true == 1) > 0 else self.ref_means
+                self.ref_noncells_means = np.mean(self.X_extracted[self.y_true == 0], axis=0) if has_gt and np.sum(self.y_true == 0) > 0 else self.ref_means
                 print("Calculated reference averages from session.")
 
     def save_iscell_to_data_dir(self):
@@ -1306,11 +1355,25 @@ class SessionState:
             raise ValueError("Failure-mode clustering is only supported for tree-based models (LightGBM, XGBoost, CatBoost) which support TreeSHAP.")
             
     def get_cell_explanation(self, cell_idx):
-        if self.X_extracted is None:
+        if self.X_extracted is None or self.y_probs is None or self.y_preds is None:
             self.process_all_cells()
-            
+
+        if self.X_extracted is None:
+            raise ValueError("Failed to extract features for dataset.")
+
+        has_gt = hasattr(self, 'y_true') and self.y_true is not None
+
+        if (self.ref_means is None or len(self.ref_means) != self.num_features or self.ref_cells_means is None or self.ref_noncells_means is None):
+            self.ref_means = np.mean(self.X_extracted, axis=0)
+            self.ref_cells_means = np.mean(self.X_extracted[self.y_true == 1], axis=0) if has_gt and np.sum(self.y_true == 1) > 0 else self.ref_means
+            self.ref_noncells_means = np.mean(self.X_extracted[self.y_true == 0], axis=0) if has_gt and np.sum(self.y_true == 0) > 0 else self.ref_means
+
+        ref_m = self.ref_means if self.ref_means is not None else np.mean(self.X_extracted, axis=0)
+        ref_c_m = self.ref_cells_means if self.ref_cells_means is not None else ref_m
+        ref_nc_m = self.ref_noncells_means if self.ref_noncells_means is not None else ref_m
+
         x_raw = self.X_extracted[cell_idx]
-        prob = self.y_probs[cell_idx]
+        prob = float(self.y_probs[cell_idx]) if self.y_probs is not None else 0.0
         
         # 1. Feature ablation explanation (always compute)
         ablation_attributions = []
@@ -1319,17 +1382,17 @@ class SessionState:
         if self.scaler is not None:
             x_proc = self.scaler.transform(x_proc)
             
-        base_prob = self.model.predict_proba(x_proc)[0, 1]
+        base_prob = float(self.model.predict_proba(x_proc)[0, 1])
         
         for i in range(self.num_features):
             x_ablated = x_raw.copy()
-            x_ablated[i] = self.ref_means[i]
+            x_ablated[i] = ref_m[i]
             
             x_ablated_proc = x_ablated.reshape(1, -1)
             if self.scaler is not None:
                 x_ablated_proc = self.scaler.transform(x_ablated_proc)
                 
-            prob_ablated = self.model.predict_proba(x_ablated_proc)[0, 1]
+            prob_ablated = float(self.model.predict_proba(x_ablated_proc)[0, 1])
             ablation_attributions.append(base_prob - prob_ablated)
             
         # 2. TreeSHAP explanation (if tree model)
@@ -1407,15 +1470,15 @@ class SessionState:
         attributions = []
         for i in range(self.num_features):
             ablation_val = ablation_attributions[i]
-            shap_val = shap_values[i] if has_shap else None
+            shap_val = shap_values[i] if (has_shap and shap_values is not None) else None
             
             attributions.append({
                 'name': self.feature_names[i],
                 'desc': self.feature_descs.get(self.feature_names[i], 'Custom model feature.'),
                 'value': float(x_raw[i]),
-                'mean_dataset': float(self.ref_means[i]),
-                'mean_cells': float(self.ref_cells_means[i]),
-                'mean_noncells': float(self.ref_noncells_means[i]),
+                'mean_dataset': float(ref_m[i]),
+                'mean_cells': float(ref_c_m[i]),
+                'mean_noncells': float(ref_nc_m[i]),
                 'ablation_attribution': float(ablation_val),
                 'shap_attribution': float(shap_val) if shap_val is not None else None,
                 'attribution': float(shap_val) if shap_val is not None else float(ablation_val)
@@ -1423,8 +1486,8 @@ class SessionState:
             
         attributions.sort(key=lambda x: abs(x['shap_attribution'] if x['shap_attribution'] is not None else x['ablation_attribution']), reverse=True)
         
-        f_raw = self.F[cell_idx]
-        fneu_raw = self.Fneu[cell_idx]
+        f_raw = self.F[cell_idx] if self.F is not None else np.zeros(100)
+        fneu_raw = self.Fneu[cell_idx] if self.Fneu is not None else np.zeros_like(f_raw)
         fcorr_raw = f_raw - 0.7 * fneu_raw
         spks_raw = self.spks[cell_idx] if self.spks is not None else np.zeros_like(f_raw)
         
@@ -1438,7 +1501,7 @@ class SessionState:
         spks_dec = spks_raw[dec_indices].tolist()
         time_dec = dec_indices.tolist()
         
-        s_entry = self.stat[cell_idx]
+        s_entry = self.stat[cell_idx] if self.stat is not None else {}
         xpix = s_entry.get('xpix', [])
         ypix = s_entry.get('ypix', [])
         
@@ -1459,11 +1522,14 @@ class SessionState:
             roi_points = []
             roi_bbox = {'xmin': 0, 'xmax': 100, 'ymin': 0, 'ymax': 100}
             
+        gt_label = int(self.y_true[cell_idx]) if (has_gt and cell_idx < len(self.y_true)) else -1
+        pred_tag = int(self.y_preds[cell_idx]) if (self.y_preds is not None and cell_idx < len(self.y_preds)) else int(prob >= 0.5)
+
         return {
             'cell_idx': cell_idx,
             'probability': float(prob),
-            'label': int(self.y_true[cell_idx]),
-            'is_cell_tag': int(self.y_preds[cell_idx]),
+            'label': gt_label,
+            'is_cell_tag': pred_tag,
             'has_shap': has_shap,
             'attributions': attributions,
             'trace': {
@@ -1534,7 +1600,7 @@ class DashHandler(BaseHTTPRequestHandler):
             
         elif path == '/api/models':
             try:
-                models, scalers = state.scan_models()
+                models, scalers, model_details = state.scan_models()
                 default_sessions = [
                     "/mnt/other_ubunthu/mnt/data/1-ordered/Stav1",
                     "/mnt/other_ubunthu/mnt/data/4-ordered/Stav4",
@@ -1549,11 +1615,13 @@ class DashHandler(BaseHTTPRequestHandler):
                 res = {
                     'models': models,
                     'scalers': scalers,
+                    'model_details': model_details,
                     'suggested_sessions': existing_sessions,
                     'active_model': str(state.model_path) if state.model_path else None,
                     'active_scaler': str(state.scaler_path) if state.scaler_path else None,
                     'active_session': str(state.session_path) if state.session_path else None,
-                    'num_features': state.num_features
+                    'num_features': state.num_features,
+                    'active_model_info': state.get_active_model_info()
                 }
                 self.send_json(res)
             except Exception as e:
@@ -1580,7 +1648,8 @@ class DashHandler(BaseHTTPRequestHandler):
                     'active_scaler': str(state.scaler_path) if state.scaler_path else None,
                     'active_session': str(state.session_path) if state.session_path else None,
                     'num_features': state.num_features,
-                    'iscell_saved': iscell_saved
+                    'iscell_saved': iscell_saved,
+                    'active_model_info': state.get_active_model_info()
                 })
             except Exception as e:
                 self.send_error_json(str(e))
@@ -1781,7 +1850,7 @@ class DashHandler(BaseHTTPRequestHandler):
                                 'mean_attribution': float(mean_attributions[f_idx]),
                                 'mean_raw': float(mean_raw[f_idx]),
                                 'mean_tp': float(tp_means[f_idx]),
-                                'mean_dataset': float(state.ref_means[f_idx])
+                                'mean_dataset': float(state.ref_means[f_idx]) if state.ref_means is not None and len(state.ref_means) > f_idx else 0.0
                             })
                             
                         features_list.sort(key=lambda x: abs(x['mean_attribution']), reverse=True)
@@ -2344,7 +2413,7 @@ class DashHandler(BaseHTTPRequestHandler):
                 
                 model_out_path = state.model_path
                 if not model_out_path:
-                    model_out_path = workspace_dir / 'models' / 'regular' / 'suite2p_best_lgb.pkl'
+                    model_out_path = workspace_dir / 'models' / 'suite2p_best_lgb.pkl'
                 
                 model_out_path.parent.mkdir(parents=True, exist_ok=True)
                 joblib.dump(final_model, model_out_path)
@@ -2508,14 +2577,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 </div>
                 
                 <!-- Model Selection -->
-                <div class="flex-1 min-w-[240px]">
+                <div class="flex-1 min-w-[280px]">
                     <label class="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5 flex items-center gap-1.5">
                         <i class="fa-solid fa-brain text-purple-400"></i> AI Model File (.pkl)
                     </label>
-                    <input type="text" id="model-select" list="model-options" 
-                           class="w-full bg-brand-darkBg border border-brand-border rounded-xl px-3 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-blue-500 transition"
-                           placeholder="Select or enter absolute model path...">
-                    <datalist id="model-options"></datalist>
+                    <select id="model-select" onchange="onModelSelectChange()"
+                            class="w-full bg-brand-darkBg border border-brand-border rounded-xl px-3 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-blue-500 transition">
+                    </select>
                 </div>
                 
                 <!-- Scaler Selection -->
@@ -2554,6 +2622,44 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             <!-- Suggested paths -->
             <div id="suggested-sessions" class="text-xs text-gray-400 flex flex-wrap items-center gap-2">
                 <span class="font-semibold text-gray-500 uppercase tracking-wide">Quick-Load Workspace Paths:</span>
+            </div>
+
+            <!-- SELECTED MODEL METADATA CARD -->
+            <div id="model-details-card" class="bg-brand-darkBg/70 border border-brand-border/60 rounded-xl p-4 space-y-3 transition mt-2">
+                <div class="flex flex-wrap items-center justify-between gap-3 border-b border-brand-border/40 pb-2.5">
+                    <div class="flex items-center gap-3">
+                        <div class="w-9 h-9 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
+                            <i class="fa-solid fa-brain text-base"></i>
+                        </div>
+                        <div>
+                            <h4 id="model-card-title" class="text-sm font-bold text-gray-100 flex items-center gap-2">
+                                Loading Model Details...
+                            </h4>
+                            <p id="model-card-desc" class="text-xs text-gray-400">
+                                Model description will appear here.
+                            </p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span id="model-card-count" class="px-2.5 py-1 rounded-full bg-purple-500/10 text-purple-300 border border-purple-500/20 text-xs font-semibold">
+                            0 Features
+                        </span>
+                        <span id="model-card-file" class="px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-300 border border-blue-500/20 text-xs font-mono">
+                            Path
+                        </span>
+                    </div>
+                </div>
+                <div>
+                    <div class="flex items-center justify-between mb-1.5">
+                        <label class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 flex items-center gap-1.5">
+                            <i class="fa-solid fa-list-check text-blue-400"></i> Enabled Active Features
+                        </label>
+                        <span id="model-card-feature-subtitle" class="text-[11px] text-gray-500"></span>
+                    </div>
+                    <div id="model-card-features" class="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
+                        <span class="text-xs text-gray-500 italic">No features loaded</span>
+                    </div>
+                </div>
             </div>
         </section>
 
@@ -3052,23 +3158,77 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             document.getElementById('loader').classList.toggle('hidden', !show);
         }
 
+        window.allModelDetails = [];
+
+        function renderModelCard(modelInfo) {
+            if (!modelInfo) return;
+            let titleEl = document.getElementById('model-card-title');
+            let descEl = document.getElementById('model-card-desc');
+            let countEl = document.getElementById('model-card-count');
+            let fileEl = document.getElementById('model-card-file');
+            let featsContainer = document.getElementById('model-card-features');
+
+            if (titleEl) titleEl.textContent = modelInfo.name || 'Custom Model';
+            if (descEl) descEl.textContent = modelInfo.description || 'No description provided for this model.';
+            
+            let count = modelInfo.feature_count || (modelInfo.active_features ? modelInfo.active_features.length : 0);
+            if (countEl) countEl.textContent = `${count} Active Features`;
+            if (fileEl) fileEl.textContent = modelInfo.path || modelInfo.filename || '';
+            
+            if (featsContainer) {
+                featsContainer.innerHTML = '';
+                let feats = modelInfo.active_features || [];
+                if (feats.length === 0) {
+                    featsContainer.innerHTML = '<span class="text-xs text-gray-500 italic">No feature list recorded</span>';
+                } else {
+                    feats.forEach(f => {
+                        let span = document.createElement('span');
+                        span.className = "px-2 py-0.5 rounded bg-brand-border/60 border border-brand-border/80 text-[11px] font-mono text-gray-300 hover:text-blue-300 hover:border-blue-500/40 transition cursor-default";
+                        span.textContent = f;
+                        featsContainer.appendChild(span);
+                    });
+                }
+            }
+        }
+
+        function onModelSelectChange() {
+            let modelSelect = document.getElementById('model-select');
+            if (!modelSelect) return;
+            let val = modelSelect.value;
+            let found = (window.allModelDetails || []).find(m => m.path === val || m.filename === val);
+            if (found) {
+                renderModelCard(found);
+            }
+        }
+
         async function loadModelsList() {
             try {
                 let res = await fetch('/api/models');
                 let data = await res.json();
                 
-                let modelDatalist = document.getElementById('model-options');
-                if (modelDatalist) {
-                    modelDatalist.innerHTML = '';
-                    data.models.forEach(m => {
-                        let opt = document.createElement('option');
-                        opt.value = m;
-                        modelDatalist.appendChild(opt);
-                    });
-                }
+                window.allModelDetails = data.model_details || [];
+
                 let modelSelect = document.getElementById('model-select');
-                if (modelSelect && data.active_model) {
-                    modelSelect.value = data.active_model;
+                if (modelSelect) {
+                    modelSelect.innerHTML = '';
+                    if (data.model_details && data.model_details.length > 0) {
+                        data.model_details.forEach(m => {
+                            let opt = document.createElement('option');
+                            opt.value = m.path;
+                            opt.textContent = `[${m.feature_count} Features] ${m.name} (${m.filename})`;
+                            modelSelect.appendChild(opt);
+                        });
+                    } else if (data.models) {
+                        data.models.forEach(m => {
+                            let opt = document.createElement('option');
+                            opt.value = m;
+                            opt.textContent = m;
+                            modelSelect.appendChild(opt);
+                        });
+                    }
+                    if (data.active_model) {
+                        modelSelect.value = data.active_model;
+                    }
                 }
                 
                 let scalerDatalist = document.getElementById('scaler-options');
@@ -3103,6 +3263,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     sugDiv.innerHTML += '<span class="text-gray-500 italic ml-2">None found, enter manually</span>';
                 }
                 
+                if (data.active_model_info) {
+                    renderModelCard(data.active_model_info);
+                } else {
+                    onModelSelectChange();
+                }
+
                 if (data.active_session) {
                     document.getElementById('session-path-input').value = data.active_session;
                     loadSessionInfo();
@@ -3130,6 +3296,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 if (data.error) {
                     alert("Error: " + data.error);
                 } else {
+                    if (data.active_model_info) {
+                        renderModelCard(data.active_model_info);
+                    }
                     await loadSessionInfo();
                     if (data.iscell_saved) {
                         console.log("Updated iscell.npy saved to session directory for Suite2p GUI.");
@@ -4421,9 +4590,9 @@ def run_server(port=5000):
     models = [str(f.relative_to(dir_path)) for f in dir_path.rglob("*.pkl") if "scaler" not in f.name and not any("venv" in p for p in f.parts)]
     
     default_model = None
-    regular_best = "models/regular/suite2p_best_lgb.pkl"
-    if (dir_path / regular_best).exists():
-        default_model = regular_best
+    best_model_path = "models/suite2p_best_lgb.pkl"
+    if (dir_path / best_model_path).exists():
+        default_model = best_model_path
     elif "suite2p_best_lgb.pkl" in [Path(m).name for m in models]:
         for m in models:
             if Path(m).name == "suite2p_best_lgb.pkl":

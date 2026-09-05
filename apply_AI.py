@@ -264,7 +264,7 @@ def extract_features(F, Fneu, stat, num_features_or_names, custom_features=None)
     
     # Precalculate bright pixels for spatial feature indexing
     bright_pix = None
-    if any(name in feature_names for name in ('number_of_bright_pixels', 'bright_pixels_ratio')):
+    if any(name in feature_names for name in ('number_of_bright_pixels', 'bright_pixels_ratio', 'bright_pixels_to_radius_sq')):
         bright_pix = []
         for s in stat:
             lam = s.get('lam', np.zeros(0))
@@ -458,13 +458,13 @@ def suppress_duplicate_rois(stat, probs, preds, F, dist_threshold=15.0, corr_thr
 # ==========================================
 # 2. INFERENCE LOGIC
 # ==========================================
-def run_ai_pipeline(session_path, model_spec='regular', scaler_spec=None, save_iscell=True):
+def run_ai_pipeline(session_path, model_spec=None, scaler_spec=None, save_iscell=True):
     """
     Unified single-source-of-truth inference pipeline for AI predictions on a Suite2p session.
     Used by both apply_AI.py CLI and investigate_cell.py Web UI.
     """
     session_path = Path(session_path)
-    base_dir = Path(__file__).parent
+    base_dir = Path(__file__).parent.resolve()
     
     F = np.load(session_path / 'F.npy', mmap_mode='r')
     Fneu = np.load(session_path / 'Fneu.npy', mmap_mode='r')
@@ -472,18 +472,16 @@ def run_ai_pipeline(session_path, model_spec='regular', scaler_spec=None, save_i
     iscell_path = session_path / 'iscell.npy'
     iscell_exists = iscell_path.exists()
 
-    # Map preset model names to paths
-    model_map = {
-        'regular': base_dir / 'models' / 'regular' / 'suite2p_best_lgb.pkl',
-        'rich': base_dir / 'models' / 'rich' / 'suite2p_best_lgb.pkl',
-    }
+    default_model_path = base_dir / 'models' / 'suite2p_best_lgb.pkl'
 
-    if isinstance(model_spec, Path):
+    if model_spec is None or str(model_spec).lower() in ('default', 'regular', 'rich', 'none'):
+        model_path = default_model_path
+    elif isinstance(model_spec, Path):
         model_path = model_spec
-    elif str(model_spec).lower() in model_map:
-        model_path = model_map[str(model_spec).lower()]
     else:
         model_path = Path(model_spec)
+        if not model_path.exists() and default_model_path.exists():
+            model_path = default_model_path
 
     if not model_path.exists():
         raise FileNotFoundError(f"Model file '{model_path}' not found.")
@@ -615,7 +613,7 @@ def run_ai_pipeline(session_path, model_spec='regular', scaler_spec=None, save_i
         'X_extracted': X
     }
 
-def apply_active_learning(session_path, model_spec='regular'):
+def apply_active_learning(session_path, model_spec=None):
     session_path = Path(session_path)
     print(f"Loading session data from {session_path}...")
     try:
@@ -625,7 +623,7 @@ def apply_active_learning(session_path, model_spec='regular'):
         threshold = results['threshold']
         num_suppressed = results['num_suppressed']
 
-        print(f"Using F1-optimized classification threshold: {threshold:.2f}")
+        print(f"Using classification threshold: {threshold:.2f}")
         if num_suppressed > 0:
             print(f"Suppressed {num_suppressed} duplicate/overlapping ROIs.")
         
@@ -641,10 +639,7 @@ def apply_active_learning(session_path, model_spec='regular'):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python apply_AI.py <path_to_suite2p_session_folder> [model_preset_or_path]")
-        print("\nPresets:")
-        print("  regular   - LightGBM with Continuous Index (25 features, Recommended Default)")
-        print("  rich      - LightGBM with Rich Features (38 features)")
+        print("Usage: python apply_AI.py <path_to_suite2p_session_folder> [model_path]")
     else:
-        model_choice = sys.argv[2] if len(sys.argv) > 2 else 'regular'
+        model_choice = sys.argv[2] if len(sys.argv) > 2 else None
         apply_active_learning(sys.argv[1], model_choice)

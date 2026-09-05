@@ -98,7 +98,7 @@ def evaluate_session(session_path_str, model_path_str):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate Cell Classifier on Single Session")
     parser.add_argument('session', type=str, help="Path to Suite2p session folder")
-    parser.add_argument('--model', type=str, default="models/regular/suite2p_best_lgb.pkl", help="Path to the model .pkl file")
+    parser.add_argument('--model', type=str, default="models/suite2p_best_lgb.pkl", help="Path to the model .pkl file")
     args = parser.parse_args()
     
     evaluate_session(args.session, args.model)

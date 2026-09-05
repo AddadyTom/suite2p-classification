@@ -51,8 +51,8 @@ pip install numpy scipy scikit-learn lightgbm joblib
 
 ### Where is the trained model located?
 * **No action required**: The trained classifier and feature metadata are **pre-packaged inside the repository** under:
-  - Model Binary: `models/regular/suite2p_best_lgb.pkl`
-  - Model Metadata: `models/regular/suite2p_best_lgb.json`
+  - Model Binary: `models/suite2p_best_lgb.pkl`
+  - Model Metadata: `models/suite2p_best_lgb.json`
 * When running the code, the scripts automatically detect and load the model from this folder relative to the repository root.
 
 ### Where should I put my imaging data?
@@ -81,13 +81,13 @@ PYTHONPATH=. .venv/bin/python investigate_cell.py --port 5000 --session /path/to
 If you want to run the classifier and apply predictions directly to the `iscell.npy` file without launching the web interface:
 
 ```bash
-python apply_AI.py /path/to/your/suite2p/plane0 regular
+python apply_AI.py /path/to/your/suite2p/plane0
 ```
 
 * **What it does**: 
   1. Backs up the original `iscell.npy` file.
-  2. Extracts the 30 active features.
-  3. Applies the F1-optimized decision threshold.
+  2. Extracts the active features.
+  3. Applies the classification decision threshold.
   4. Runs Non-Maximum Suppression (NMS) to prune overlapping ROIs.
   5. Overwrites `iscell.npy` with the predicted classifications (0/1) and exact probability scores.
 
@@ -126,4 +126,4 @@ Once you have changed the active feature set, run:
 ```bash
 .venv/bin/python train_model.py
 ```
-This script will compile all cached sessions, run a 5-fold cross-validation, display average scores, and save the updated classifier to `models/regular/suite2p_best_lgb.pkl` along with its feature schema JSON.
+This script will compile all cached sessions, run a 5-fold cross-validation, display average scores, and save the updated classifier to `models/suite2p_best_lgb.pkl` along with its feature schema JSON.

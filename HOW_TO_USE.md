@@ -6,11 +6,9 @@ This directory contains a complete, self-contained suite for automated cell clas
 
 ## 🚀 Key Features & Highlights
 
-1. **Robust Feature Engineering**: Leverages shape-invariant morphology (Border Solidity, MRS) and calcium trace kinetics (Asymmetry, peak statistics), eliminating raw pixel size dependencies.
-2. **Simplified Machine Learning Models**:
-   - **Regular** (Recommended Default): LightGBM classifier utilizing 24 features including shape-invariant morphology and continuous spatial ranking ranks.
-   - **No Index (Option A)**: Pure biological model utilizing 26 features (including **Temporal SNR**, **Activity Ratio**, and **Peak Density**), completely free of spatial location/indexing bias.
-3. **Unified & Adaptive Inference (`apply_AI.py`)**: A single script that automatically detects the model's feature size (24 or 26) and applies the corresponding F1-optimized threshold.
+1. **Robust Feature Engineering**: Leverages shape-invariant morphology (Border Solidity, MRS), spatial metrics, and calcium trace kinetics (Asymmetry, Peak statistics, SNR).
+2. **Optimized LightGBM Model**: High-performance gradient boosted classifier trained on 26 active features.
+3. **Unified & Adaptive Inference (`apply_AI.py`)**: A single script that automatically extracts features and applies the corresponding decision threshold.
 4. **Correlation-Based NMS**: Automatically suppresses duplicate/overlapping ROIs only if they share both high spatial overlap (IoU > 0.3) and trace correlation ($r \ge 0.85$).
 5. **Fully Backward-Compatible**: Compiled and serialized using compatible LightGBM and NumPy 1.x binaries, making it 100% compatible with older environments (including **NumPy 1.24.3**).
 
@@ -30,14 +28,11 @@ pip install numpy==1.24.3 scipy scikit-learn lightgbm joblib
 Run this script on a finished Suite2p plane folder (containing `F.npy`, `Fneu.npy`, `stat.npy`, and `iscell.npy`):
 
 ```bash
-python apply_AI.py /path/to/suite2p/plane0 [model_preset_or_path]
+python apply_AI.py /path/to/suite2p/plane0 [model_path]
 ```
 
 ### Parameters:
-* **`[model_preset_or_path]`** (Optional, default: `regular`): Choose a pre-trained model preset or provide an absolute path to a custom model `.pkl` file.
-
-#### Presets Available:
-* **`regular`** (Recommended default): LightGBM model utilizing continuous spatial rank index (25 features).
+* **`[model_path]`** (Optional): Provide a path to a custom model `.pkl` file, or omit to use the default `models/suite2p_best_lgb.pkl`.
 
 ### What it does:
 1. Creates a backup of your original `iscell.npy` as `iscell_backup_before_AI.npy` (if not already present).

@@ -1,4 +1,5 @@
 import os
+import argparse
 import numpy as np
 import lightgbm as lgb
 from sklearn.model_selection import GroupKFold
@@ -9,11 +10,26 @@ from pathlib import Path
 from fe_engine.fe_loop_runner import load_preprocessed_data, extract_features_dataset
 from fe_engine.fe_definitions import ACTIVE_FEATURES
 
-def train_and_save():
-    print(f"Starting training pipeline with {len(ACTIVE_FEATURES)} active features...")
+def train_and_save(output_path=None, model_name=None, description=None):
+    base_dir = Path(__file__).parent.resolve()
+    
+    if output_path:
+        out_p = Path(output_path)
+        if not out_p.is_absolute():
+            out_p = base_dir / out_p
+    else:
+        out_p = base_dir / "models" / "suite2p_best_lgb.pkl"
+        
+    out_p.parent.mkdir(parents=True, exist_ok=True)
+    meta_p = out_p.with_suffix(".json")
+
+    disp_name = model_name if model_name else out_p.stem.replace("_", " ").title()
+    disp_desc = description if description else f"LightGBM classifier trained on {len(ACTIVE_FEATURES)} active features."
+
+    print(f"Starting training pipeline for '{disp_name}' with {len(ACTIVE_FEATURES)} active features...")
     
     # 1. Load preprocessed sessions
-    cache_dir = Path("preprocessed_cache")
+    cache_dir = base_dir / "preprocessed_cache"
     if not cache_dir.exists():
         raise FileNotFoundError("preprocessed_cache directory not found! Run preprocessing first.")
         
@@ -119,19 +135,24 @@ def train_and_save():
     )
     final_model.fit(X, y, feature_name=ACTIVE_FEATURES)
     
-    # Save model and metadata config
-    model_dir = Path(__file__).parent.resolve() / "models/regular"
-    model_dir.mkdir(parents=True, exist_ok=True)
-    
-    model_path = model_dir / "suite2p_best_lgb.pkl"
-    meta_path = model_dir / "suite2p_best_lgb.json"
-    
-    joblib.dump(final_model, model_path)
-    with open(meta_path, 'w') as f:
-        json.dump({'active_features': ACTIVE_FEATURES, 'custom_features': {}}, f, indent=4)
+    joblib.dump(final_model, out_p)
+    meta_data = {
+        'name': disp_name,
+        'description': disp_desc,
+        'active_features': ACTIVE_FEATURES,
+        'custom_features': {}
+    }
+    with open(meta_p, 'w') as f:
+        json.dump(meta_data, f, indent=4)
         
-    print(f'\n Model successfully saved to {model_path.resolve()}')
-    print(f' Sibling metadata saved to {meta_path.resolve()}')
+    print(f'\n Model successfully saved to {out_p.resolve()}')
+    print(f' Sibling metadata saved to {meta_p.resolve()}')
 
 if __name__ == "__main__":
-    train_and_save()
+    parser = argparse.ArgumentParser(description="Train LightGBM Cell Classifier Model")
+    parser.add_argument('--output', '-o', type=str, default=None, help="Output .pkl file path (e.g. models/my_model.pkl)")
+    parser.add_argument('--name', '-n', type=str, default=None, help="Human-readable model name")
+    parser.add_argument('--description', '-d', type=str, default=None, help="Model description")
+    args = parser.parse_args()
+    
+    train_and_save(output_path=args.output, model_name=args.name, description=args.description)
