@@ -1,6 +1,6 @@
 {
-    "name": "Experimental LightGBM Variant",
-    "description": "Experimental LightGBM model variant trained on STAV sessions.",
+    "name": "LightGBM (27 Features - with Bright Pixels)",
+    "description": "Trained on 19 STAV sessions including the number_of_bright_pixels feature (27 features total).",
     "active_features": [
         "area_to_radius_sq",
         "aspect_ratio",
@@ -9,6 +9,7 @@
         "corr_f_fneu",
         "max_width",
         "mrs",
+        "number_of_bright_pixels",
         "peak_to_q95_ratio",
         "peak_to_q99_ratio",
         "q10",

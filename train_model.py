@@ -10,9 +10,14 @@ from pathlib import Path
 from fe_engine.fe_loop_runner import load_preprocessed_data, extract_features_dataset
 from fe_engine.fe_definitions import ACTIVE_FEATURES
 
-def train_and_save(output_path=None, model_name=None, description=None):
+def train_and_save(output_path=None, model_name=None, description=None, features_list=None, include_bright_pixels=False):
     base_dir = Path(__file__).parent.resolve()
     
+    target_features = list(features_list) if features_list else list(ACTIVE_FEATURES)
+    if include_bright_pixels and 'number_of_bright_pixels' not in target_features:
+        target_features.append('number_of_bright_pixels')
+        target_features = sorted(target_features)
+
     if output_path:
         out_p = Path(output_path)
         if not out_p.is_absolute():
@@ -24,9 +29,9 @@ def train_and_save(output_path=None, model_name=None, description=None):
     meta_p = out_p.with_suffix(".json")
 
     disp_name = model_name if model_name else out_p.stem.replace("_", " ").title()
-    disp_desc = description if description else f"LightGBM classifier trained on {len(ACTIVE_FEATURES)} active features."
+    disp_desc = description if description else f"LightGBM classifier trained on {len(target_features)} active features."
 
-    print(f"Starting training pipeline for '{disp_name}' with {len(ACTIVE_FEATURES)} active features...")
+    print(f"Starting training pipeline for '{disp_name}' with {len(target_features)} active features...")
     
     # 1. Load preprocessed sessions
     cache_dir = base_dir / "preprocessed_cache"
@@ -51,7 +56,7 @@ def train_and_save(output_path=None, model_name=None, description=None):
     print(f"\nFiltered training set: {len(stav_sessions)} Stav sessions (excluded Yael sessions).")
     
     # 3. Compile datasets
-    X, y, groups = extract_features_dataset(stav_sessions, ACTIVE_FEATURES)
+    X, y, groups = extract_features_dataset(stav_sessions, target_features)
     print(f"Dataset compiled: X={X.shape}, y={y.shape}, Positive={np.sum(y==1)}, Negative={np.sum(y==0)}")
     
     # 4. 5-Fold GroupKFold Cross-Validation
@@ -133,13 +138,13 @@ def train_and_save(output_path=None, model_name=None, description=None):
         n_jobs=-1,
         verbosity=-1
     )
-    final_model.fit(X, y, feature_name=ACTIVE_FEATURES)
+    final_model.fit(X, y, feature_name=target_features)
     
     joblib.dump(final_model, out_p)
     meta_data = {
         'name': disp_name,
         'description': disp_desc,
-        'active_features': ACTIVE_FEATURES,
+        'active_features': target_features,
         'custom_features': {}
     }
     with open(meta_p, 'w') as f:
@@ -153,6 +158,12 @@ if __name__ == "__main__":
     parser.add_argument('--output', '-o', type=str, default=None, help="Output .pkl file path (e.g. models/my_model.pkl)")
     parser.add_argument('--name', '-n', type=str, default=None, help="Human-readable model name")
     parser.add_argument('--description', '-d', type=str, default=None, help="Model description")
+    parser.add_argument('--include-bright-pixels', action='store_true', help="Include number_of_bright_pixels feature (27 features total)")
     args = parser.parse_args()
     
-    train_and_save(output_path=args.output, model_name=args.name, description=args.description)
+    train_and_save(
+        output_path=args.output,
+        model_name=args.name,
+        description=args.description,
+        include_bright_pixels=args.include_bright_pixels
+    )
