@@ -42,8 +42,9 @@ source .venv/bin/activate
 
 ### 3. Install Dependencies
 ```bash
-pip install numpy scipy scikit-learn lightgbm joblib
+pip install -r requirements.txt
 ```
+*(Or manually: `pip install numpy scipy scikit-learn lightgbm joblib`)*
 
 ---
 

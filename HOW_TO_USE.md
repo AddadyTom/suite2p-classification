@@ -18,8 +18,9 @@ This directory contains a complete, self-contained suite for automated cell clas
 
 Ensure you have the required packages installed in your python environment:
 ```bash
-pip install numpy==1.24.3 scipy scikit-learn lightgbm joblib
+pip install -r requirements.txt
 ```
+*(Or manually: `pip install numpy scipy scikit-learn lightgbm joblib`)*
 
 ---
 
