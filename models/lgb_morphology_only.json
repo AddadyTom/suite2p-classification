@@ -1,0 +1,14 @@
+{
+    "name": "LGB Morphology Only",
+    "description": "LightGBM trained on 7 morphology/shape features only (no trace stats).",
+    "active_features": [
+        "area_to_radius_sq",
+        "aspect_ratio",
+        "bright_pixels_to_radius_sq",
+        "compact",
+        "max_width",
+        "radius",
+        "solidity"
+    ],
+    "custom_features": {}
+}

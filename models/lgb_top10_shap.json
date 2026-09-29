@@ -1,0 +1,17 @@
+{
+    "name": "LGB Top-10 SHAP",
+    "description": "LightGBM trained on the 10 highest-importance features from the SHAP report.",
+    "active_features": [
+        "q99",
+        "q50",
+        "skew_fcorr",
+        "mrs",
+        "corr_f_fneu",
+        "range_fcorr",
+        "compact",
+        "range_f",
+        "solidity",
+        "std_f"
+    ],
+    "custom_features": {}
+}

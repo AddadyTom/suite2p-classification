@@ -9,3 +9,7 @@ feature_cache/
 
 # Large Datasets
 *.npy
+
+# Nested repos & scratch
+suite2p-repo/
+scratch/

@@ -1,0 +1,33 @@
+{
+    "name": "LGB Deep (26 features)",
+    "description": "LightGBM with deeper trees (max_depth=12, num_leaves=127) on all 26 active features.",
+    "active_features": [
+        "area_to_radius_sq",
+        "aspect_ratio",
+        "bright_pixels_to_radius_sq",
+        "compact",
+        "corr_f_fneu",
+        "max_width",
+        "mrs",
+        "peak_to_q95_ratio",
+        "peak_to_q99_ratio",
+        "q10",
+        "q25",
+        "q50",
+        "q75",
+        "q90",
+        "q95",
+        "q99",
+        "radius",
+        "range_f",
+        "range_fcorr",
+        "skew_diff_fcorr",
+        "skew_f",
+        "skew_fcorr",
+        "skew_fneu",
+        "solidity",
+        "std_f",
+        "std_fcorr"
+    ],
+    "custom_features": {}
+}

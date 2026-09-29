@@ -10,7 +10,14 @@ from pathlib import Path
 from fe_engine.fe_loop_runner import load_preprocessed_data, extract_features_dataset
 from fe_engine.fe_definitions import ACTIVE_FEATURES
 
-def train_and_save(output_path=None, model_name=None, description=None, features_list=None, include_bright_pixels=False):
+try:
+    import xgboost as xgb_lib
+    HAS_XGB = True
+except ImportError:
+    HAS_XGB = False
+
+def train_and_save(output_path=None, model_name=None, description=None, features_list=None,
+                   include_bright_pixels=False, deep=False, use_xgb=False):
     base_dir = Path(__file__).parent.resolve()
     
     target_features = list(features_list) if features_list else list(ACTIVE_FEATURES)
@@ -75,23 +82,47 @@ def train_and_save(output_path=None, model_name=None, description=None, features
         n_neg = np.sum(y_train == 0)
         scale_pos_weight = n_neg / n_pos if n_pos > 0 else 1.0
         
-        model = lgb.LGBMClassifier(
-            n_estimators=1000,
-            learning_rate=0.05,
-            max_depth=8,
-            num_leaves=63,
-            scale_pos_weight=scale_pos_weight,
-            subsample=0.8,
-            colsample_bytree=0.8,
-            random_state=42,
-            n_jobs=-1,
-            verbosity=-1
-        )
-        model.fit(
-            X_train, y_train,
-            eval_set=[(X_val, y_val)],
-            callbacks=[lgb.early_stopping(stopping_rounds=50, verbose=False)]
-        )
+        if use_xgb:
+            if not HAS_XGB:
+                raise ImportError("xgboost is not installed. Run: pip install xgboost")
+            model = xgb_lib.XGBClassifier(
+                n_estimators=1000,
+                learning_rate=0.05,
+                max_depth=8,
+                scale_pos_weight=scale_pos_weight,
+                subsample=0.8,
+                colsample_bytree=0.8,
+                random_state=42,
+                n_jobs=-1,
+                verbosity=0,
+                eval_metric='logloss',
+                early_stopping_rounds=50,
+            )
+            model.fit(
+                X_train, y_train,
+                eval_set=[(X_val, y_val)],
+                verbose=False
+            )
+        else:
+            _max_depth = 12 if deep else 8
+            _num_leaves = 127 if deep else 63
+            model = lgb.LGBMClassifier(
+                n_estimators=1000,
+                learning_rate=0.05,
+                max_depth=_max_depth,
+                num_leaves=_num_leaves,
+                scale_pos_weight=scale_pos_weight,
+                subsample=0.8,
+                colsample_bytree=0.8,
+                random_state=42,
+                n_jobs=-1,
+                verbosity=-1
+            )
+            model.fit(
+                X_train, y_train,
+                eval_set=[(X_val, y_val)],
+                callbacks=[lgb.early_stopping(stopping_rounds=50, verbose=False)]
+            )
         
         y_prob = model.predict_proba(X_val)[:, 1]
         
@@ -126,19 +157,37 @@ def train_and_save(output_path=None, model_name=None, description=None, features
     n_neg_all = np.sum(y == 0)
     scale_pos_weight_all = n_neg_all / n_pos_all if n_pos_all > 0 else 1.0
     
-    final_model = lgb.LGBMClassifier(
-        n_estimators=500,
-        learning_rate=0.05,
-        max_depth=8,
-        num_leaves=63,
-        scale_pos_weight=scale_pos_weight_all,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        random_state=42,
-        n_jobs=-1,
-        verbosity=-1
-    )
-    final_model.fit(X, y, feature_name=target_features)
+    if use_xgb:
+        if not HAS_XGB:
+            raise ImportError("xgboost is not installed. Run: pip install xgboost")
+        final_model = xgb_lib.XGBClassifier(
+            n_estimators=500,
+            learning_rate=0.05,
+            max_depth=8,
+            scale_pos_weight=scale_pos_weight_all,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            random_state=42,
+            n_jobs=-1,
+            verbosity=0,
+        )
+        final_model.fit(X, y)
+    else:
+        _max_depth = 12 if deep else 8
+        _num_leaves = 127 if deep else 63
+        final_model = lgb.LGBMClassifier(
+            n_estimators=500,
+            learning_rate=0.05,
+            max_depth=_max_depth,
+            num_leaves=_num_leaves,
+            scale_pos_weight=scale_pos_weight_all,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            random_state=42,
+            n_jobs=-1,
+            verbosity=-1
+        )
+        final_model.fit(X, y, feature_name=target_features)
     
     joblib.dump(final_model, out_p)
     meta_data = {
@@ -159,11 +208,19 @@ if __name__ == "__main__":
     parser.add_argument('--name', '-n', type=str, default=None, help="Human-readable model name")
     parser.add_argument('--description', '-d', type=str, default=None, help="Model description")
     parser.add_argument('--include-bright-pixels', action='store_true', help="Include number_of_bright_pixels feature (27 features total)")
+    parser.add_argument('--features', type=str, default=None, help="Comma-separated list of features to use (overrides ACTIVE_FEATURES)")
+    parser.add_argument('--deep', action='store_true', help="Use deeper trees: max_depth=12, num_leaves=127")
+    parser.add_argument('--xgb', action='store_true', help="Use XGBoost instead of LightGBM")
     args = parser.parse_args()
-    
+
+    features_list = [f.strip() for f in args.features.split(",")] if args.features else None
+
     train_and_save(
         output_path=args.output,
         model_name=args.name,
         description=args.description,
-        include_bright_pixels=args.include_bright_pixels
+        include_bright_pixels=args.include_bright_pixels,
+        features_list=features_list,
+        deep=args.deep,
+        use_xgb=args.xgb,
     )

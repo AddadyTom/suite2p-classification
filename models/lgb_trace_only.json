@@ -1,0 +1,26 @@
+{
+    "name": "LGB Trace Only",
+    "description": "LightGBM trained on 19 trace-statistics features only (no morphology).",
+    "active_features": [
+        "corr_f_fneu",
+        "mrs",
+        "peak_to_q95_ratio",
+        "peak_to_q99_ratio",
+        "q10",
+        "q25",
+        "q50",
+        "q75",
+        "q90",
+        "q95",
+        "q99",
+        "range_f",
+        "range_fcorr",
+        "skew_diff_fcorr",
+        "skew_f",
+        "skew_fcorr",
+        "skew_fneu",
+        "std_f",
+        "std_fcorr"
+    ],
+    "custom_features": {}
+}
