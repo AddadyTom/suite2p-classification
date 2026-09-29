@@ -17,7 +17,7 @@ except ImportError:
     HAS_XGB = False
 
 def train_and_save(output_path=None, model_name=None, description=None, features_list=None,
-                   include_bright_pixels=False, deep=False, use_xgb=False):
+                   include_bright_pixels=False, deep=False, use_xgb=False, inbar_only=False):
     base_dir = Path(__file__).parent.resolve()
     
     target_features = list(features_list) if features_list else list(ACTIVE_FEATURES)
@@ -47,23 +47,38 @@ def train_and_save(output_path=None, model_name=None, description=None, features
         
     sessions = load_preprocessed_data(cache_dir)
     
-    # 2. Filter: Train on STAV models only (DO NOT TRAIN ON YAEL MODELS)
-    stav_sessions = []
+    # 2. Filter: Train on specified models
+    target_sessions = []
+    import re
     for s in sessions:
         name = str(s.get('session_name', '')).lower()
         path = str(s.get('session_path', '')).lower()
+        
+        if inbar_only:
+            if 'inbar' not in name and 'inbar' not in path:
+                print(f" Skipping non-Inbar session: {s.get('session_name')}")
+                continue
+            m = re.search(r'inbar(\d+)', name) or re.search(r'inbar(\d+)', path)
+            if m:
+                num = int(m.group(1))
+                if num > 10:
+                    print(f" Skipping Inbar{num} session (>10): {s.get('session_name')}")
+                    continue
+            target_sessions.append(s)
+            continue
+            
         if 'yael' in name or 'yael' in path:
             print(f" Skipping Yael session: {s.get('session_name')}")
             continue
         if 'stav22' in name or 'stav22' in path:
             print(f" Skipping Stav22 session (held out for validation): {s.get('session_name')}")
             continue
-        stav_sessions.append(s)
+        target_sessions.append(s)
         
-    print(f"\nFiltered training set: {len(stav_sessions)} Stav sessions (excluded Yael sessions).")
+    print(f"\nFiltered training set: {len(target_sessions)} sessions.")
     
     # 3. Compile datasets
-    X, y, groups = extract_features_dataset(stav_sessions, target_features)
+    X, y, groups = extract_features_dataset(target_sessions, target_features)
     print(f"Dataset compiled: X={X.shape}, y={y.shape}, Positive={np.sum(y==1)}, Negative={np.sum(y==0)}")
     
     # 4. 5-Fold GroupKFold Cross-Validation
@@ -211,6 +226,7 @@ if __name__ == "__main__":
     parser.add_argument('--features', type=str, default=None, help="Comma-separated list of features to use (overrides ACTIVE_FEATURES)")
     parser.add_argument('--deep', action='store_true', help="Use deeper trees: max_depth=12, num_leaves=127")
     parser.add_argument('--xgb', action='store_true', help="Use XGBoost instead of LightGBM")
+    parser.add_argument('--inbar-only', action='store_true', help="Train ONLY on Inbar 1-10 sessions")
     args = parser.parse_args()
 
     features_list = [f.strip() for f in args.features.split(",")] if args.features else None
@@ -223,4 +239,5 @@ if __name__ == "__main__":
         features_list=features_list,
         deep=args.deep,
         use_xgb=args.xgb,
+        inbar_only=args.inbar_only
     )

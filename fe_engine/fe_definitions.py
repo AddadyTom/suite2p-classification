@@ -225,32 +225,62 @@ def get_bright_pixels_to_radius_sq(cache):
     return nbright / denom
 
 def get_peak_to_q99_ratio(cache):
-    if '_sorted_Fcorr' not in cache:
-        F_corr = _get_fcorr(cache)
-        cache['_sorted_Fcorr'] = np.sort(F_corr, axis=1)
-    sorted_F = cache['_sorted_Fcorr']
-    n_frames = sorted_F.shape[1]
-    max_val = sorted_F[:, -1]
-    q99_val = sorted_F[:, int(0.99 * (n_frames - 1))]
-    med = sorted_F[:, n_frames // 2]
-    max_diff = max_val - med
-    q99_diff = q99_val - med
-    q99_diff = np.maximum(q99_diff, 1e-6)
-    return max_diff / q99_diff
+    F = cache['F']
+    Fneu = cache['Fneu']
+    n_cells = F.shape[0]
+    out = np.zeros(n_cells, dtype=np.float32)
+    for i in range(n_cells):
+        fcorr = F[i] - 0.7 * Fneu[i]
+        sorted_fcorr = np.sort(fcorr)
+        n_frames = len(sorted_fcorr)
+        max_val = sorted_fcorr[-1]
+        q99_val = sorted_fcorr[int(0.99 * (n_frames - 1))]
+        med = sorted_fcorr[n_frames // 2]
+        max_diff = max_val - med
+        q99_diff = max(q99_val - med, 1e-6)
+        out[i] = max_diff / q99_diff
+    return out
 
 def get_peak_to_q95_ratio(cache):
-    if '_sorted_Fcorr' not in cache:
-        F_corr = _get_fcorr(cache)
-        cache['_sorted_Fcorr'] = np.sort(F_corr, axis=1)
-    sorted_F = cache['_sorted_Fcorr']
-    n_frames = sorted_F.shape[1]
-    max_val = sorted_F[:, -1]
-    q95_val = sorted_F[:, int(0.95 * (n_frames - 1))]
-    med = sorted_F[:, n_frames // 2]
-    max_diff = max_val - med
-    q95_diff = q95_val - med
-    q95_diff = np.maximum(q95_diff, 1e-6)
-    return max_diff / q95_diff
+    F = cache['F']
+    Fneu = cache['Fneu']
+    n_cells = F.shape[0]
+    out = np.zeros(n_cells, dtype=np.float32)
+    for i in range(n_cells):
+        fcorr = F[i] - 0.7 * Fneu[i]
+        sorted_fcorr = np.sort(fcorr)
+        n_frames = len(sorted_fcorr)
+        max_val = sorted_fcorr[-1]
+        q95_val = sorted_fcorr[int(0.95 * (n_frames - 1))]
+        med = sorted_fcorr[n_frames // 2]
+        max_diff = max_val - med
+        q95_diff = max(q95_val - med, 1e-6)
+        out[i] = max_diff / q95_diff
+    return out
+
+def get_range_ratio_f_fneu(cache):
+    F = cache['F']
+    Fneu = cache['Fneu']
+    n_cells = F.shape[0]
+    out = np.zeros(n_cells, dtype=np.float32)
+    for i in range(n_cells):
+        q5_f, q99_f = np.percentile(F[i], [5, 99])
+        q5_n, q99_n = np.percentile(Fneu[i], [5, 99])
+        range_f = q99_f - q5_f
+        range_neu = max(q99_n - q5_n, 1e-6)
+        out[i] = range_f / range_neu
+    return out
+
+def get_mean_diff_f_fneu(cache):
+    F = cache['F']
+    Fneu = cache['Fneu']
+    n_cells = F.shape[0]
+    out = np.zeros(n_cells, dtype=np.float32)
+    session_scale = _get_session_scale(cache)
+    for i in range(n_cells):
+        diff = np.mean(F[i]) - np.mean(Fneu[i])
+        out[i] = diff / session_scale
+    return out
 
 # ==========================================
 # 2. FEATURE REGISTRY (strictly dictionary based)
@@ -300,6 +330,8 @@ FEATURE_REGISTRY = {
     'bright_pixels_to_radius_sq': get_bright_pixels_to_radius_sq,
     'peak_to_q99_ratio': get_peak_to_q99_ratio,
     'peak_to_q95_ratio': get_peak_to_q95_ratio,
+    'range_ratio_f_fneu': get_range_ratio_f_fneu,
+    'mean_diff_f_fneu': get_mean_diff_f_fneu,
 }
 
 # ==========================================
@@ -307,7 +339,7 @@ FEATURE_REGISTRY = {
 # ==========================================
 
 ACTIVE_FEATURES = [
-    'area_to_radius_sq', 'aspect_ratio', 'bright_pixels_to_radius_sq', 'compact',
+    'area_to_radius_sq', 'aspect_ratio', 'compact',
     'corr_f_fneu', 'max_width', 'mrs',
     'peak_to_q95_ratio', 'peak_to_q99_ratio',
     'q10', 'q25', 'q50', 'q75', 'q90', 'q95', 'q99',

@@ -1,12 +1,13 @@
 import os
 import sys
+import gc
 import json
 import joblib
 import shutil
 import numpy as np
 import urllib.parse
 from pathlib import Path
-from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from scipy.stats import skew
 from scipy.signal import find_peaks, peak_widths
 import webbrowser
@@ -549,19 +550,39 @@ def extract_features_single(F_row, Fneu_row, spks_row, stat_entry, roi_idx, n_ro
 
 def extract_features_vectorized(F, Fneu, spks, stat, feature_names, custom_features=None):
     n_cells = F.shape[0]
-    
-    # 1. Resolve feature names
-    feature_names = list(feature_names)
     print(f"Extracting {len(feature_names)} features dynamically using vectorized operations for {n_cells} ROIs...")
-    
+    chunk_size = 500
+    stds = []
+    for i in range(0, n_cells, chunk_size):
+        f_c = F[i:i+chunk_size] - 0.7 * Fneu[i:i+chunk_size]
+        stds.append(np.std(f_c, axis=1))
+    std_fcorr_all_temp = np.concatenate(stds) if stds else np.array([])
+    session_scale = np.median(std_fcorr_all_temp) if len(std_fcorr_all_temp) > 0 else 1.0
+    if np.isnan(session_scale) or session_scale <= 0:
+        session_scale = 1.0
+
+    if n_cells <= chunk_size:
+        return _extract_features_vectorized_chunk(F, Fneu, spks, stat, feature_names, custom_features, session_scale)
+
+    X_chunks = []
+    for i in range(0, n_cells, chunk_size):
+        F_c = F[i:i+chunk_size]
+        Fneu_c = Fneu[i:i+chunk_size]
+        spks_c = spks[i:i+chunk_size] if spks is not None else None
+        stat_c = stat[i:i+chunk_size]
+        X_c = _extract_features_vectorized_chunk(F_c, Fneu_c, spks_c, stat_c, feature_names, custom_features, session_scale)
+        X_chunks.append(X_c)
+        import gc; gc.collect()
+    return np.vstack(X_chunks)
+
+def _extract_features_vectorized_chunk(F, Fneu, spks, stat, feature_names, custom_features=None, session_scale=1.0):
+    n_cells = F.shape[0]
+    feature_names = list(feature_names)
+
     # 2. Precompute trace signals
     F_corr = F - 0.7 * Fneu
     
-    # Calculate session-level standard deviation scale
-    std_fcorr_all_temp = np.std(F_corr, axis=1)
-    session_scale = np.median(std_fcorr_all_temp)
-    if np.isnan(session_scale) or session_scale <= 0:
-        session_scale = 1.0
+    # Session scale is passed in as a parameter
         
     std_diff_f = np.std(np.diff(F, axis=1), axis=1)
     std_diff_f[std_diff_f <= 0] = 1e-6
@@ -866,6 +887,7 @@ def extract_features_vectorized(F, Fneu, spks, stat, feature_names, custom_featu
             
         else:
             print(f"Warning: Unknown feature name '{name}'. Defaulting to 0.0.")
+            print(f"DEBUG: FEATURE_REGISTRY keys: {list(FEATURE_REGISTRY.keys())}")
             X[:, col_idx] = 0.0
             
         ns[name] = X[:, col_idx]
@@ -1178,6 +1200,19 @@ class SessionState:
         self.ref_noncells_means = None
 
     def load_session(self, session_path_str):
+        # --- Explicitly free old session data to avoid OOM when switching sessions ---
+        self.F = None
+        self.Fneu = None
+        self.stat = None
+        self.spks = None
+        self.X_extracted = None
+        self.y_probs = None
+        self.y_preds = None
+        self.y_true = None
+        self.iscell_meta = None
+        gc.collect()
+        # ---------------------------------------------------------------------------
+
         self.session_path = Path(session_path_str)
         print(f"Loading session: {self.session_path}")
         
@@ -1221,37 +1256,28 @@ class SessionState:
                 
             if self.session_path and self.model_path:
                 try:
+                    # Let run_ai_pipeline handle partial/full cache loading and fallback internally
                     results = run_ai_pipeline(
                         session_path=self.session_path,
                         model_spec=self.model_path,
                         scaler_spec=self.scaler_path,
-                        save_iscell=False
+                        save_iscell=False,
+                        custom_features=self.custom_features
                     )
-                    self.X_extracted = results['X_extracted']
-                    self.y_probs = results['probs']
-                    self.y_preds = results['is_cell']
+                    self.X_extracted = results["X_extracted"]
+                    self.y_probs = results["probs"]
+                    self.y_preds = results["is_cell"]
                 except Exception as e:
-                    print(f"Warning: run_ai_pipeline execution failed, using fallback: {e}")
-                    n_cells = len(self.F)
-                    self.X_extracted = extract_features_vectorized(
-                        self.F, self.Fneu, self.spks, self.stat, self.feature_names,
-                        custom_features=getattr(self, 'custom_features', None)
-                    )
+                    print(f"Error extracting features: {e}")
+                    import traceback; traceback.print_exc()
+                    self.X_extracted = None
+                # 3. Predict using model (if not already predicted by run_ai_pipeline)
+                if getattr(self, 'y_probs', None) is None:
                     X_proc = self.X_extracted
                     if self.scaler is not None:
                         X_proc = self.scaler.transform(X_proc)
                     self.y_probs = self.model.predict_proba(X_proc)[:, 1]
                     self.y_preds = (self.y_probs >= 0.5).astype(int)
-            else:
-                self.X_extracted = extract_features_vectorized(
-                    self.F, self.Fneu, self.spks, self.stat, self.feature_names,
-                    custom_features=getattr(self, 'custom_features', None)
-                )
-                X_proc = self.X_extracted
-                if self.scaler is not None:
-                    X_proc = self.scaler.transform(X_proc)
-                self.y_probs = self.model.predict_proba(X_proc)[:, 1]
-                self.y_preds = (self.y_probs >= 0.5).astype(int)
             
             if (self.ref_means is None or len(self.ref_means) != self.num_features or self.ref_cells_means is None or self.ref_noncells_means is None) and self.X_extracted is not None:
                 self.ref_means = np.mean(self.X_extracted, axis=0)
@@ -1630,27 +1656,28 @@ class DashHandler(BaseHTTPRequestHandler):
             
         elif path == '/api/change_settings':
             try:
-                session_path = params.get('session_path', [None])[0]
-                model_name = params.get('model_name', [None])[0]
-                scaler_name = params.get('scaler_name', [None])[0]
-                
-                if model_name:
-                    state.load_model(model_name, scaler_name)
+                with state.lock:
+                    session_path = params.get('session_path', [None])[0]
+                    model_name = params.get('model_name', [None])[0]
+                    scaler_name = params.get('scaler_name', [None])[0]
                     
-                iscell_saved = False
-                if session_path:
-                    state.load_session(session_path)
-                    iscell_saved = state.save_iscell_to_data_dir()
-                    
-                self.send_json({
-                    'status': 'success',
-                    'active_model': str(state.model_path) if state.model_path else None,
-                    'active_scaler': str(state.scaler_path) if state.scaler_path else None,
-                    'active_session': str(state.session_path) if state.session_path else None,
-                    'num_features': state.num_features,
-                    'iscell_saved': iscell_saved,
-                    'active_model_info': state.get_active_model_info()
-                })
+                    if model_name:
+                        state.load_model(model_name, scaler_name)
+                        
+                    iscell_saved = False
+                    if session_path:
+                        state.load_session(session_path)
+                        iscell_saved = state.save_iscell_to_data_dir()
+                        
+                    self.send_json({
+                        'status': 'success',
+                        'active_model': str(state.model_path) if state.model_path else None,
+                        'active_scaler': str(state.scaler_path) if state.scaler_path else None,
+                        'active_session': str(state.session_path) if state.session_path else None,
+                        'num_features': state.num_features,
+                        'iscell_saved': iscell_saved,
+                        'active_model_info': state.get_active_model_info()
+                    })
             except Exception as e:
                 self.send_error_json(str(e))
             return
@@ -3278,7 +3305,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             }
         }
 
+        let isApplying = false;
         async function applySettings() {
+            if (isApplying) return;
+            isApplying = true;
+            
             let sessionPath = document.getElementById('session-path-input').value.trim();
             let modelName = document.getElementById('model-select').value;
             let scalerName = document.getElementById('scaler-select').value;
@@ -3308,6 +3339,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 alert("Error applying settings: " + e);
             } finally {
                 showLoader(false);
+                isApplying = false;
             }
         }
 
@@ -4608,21 +4640,21 @@ def run_server(port=5000):
             print(f"Error pre-loading default model: {e}")
             
     # Auto-load first suggested session if available if none specified
-    if not state.session_path:
-        suggested_sessions = [
-            "/mnt/other_ubunthu/mnt/data/1-ordered/Stav1",
-            "/mnt/other_ubunthu/mnt/data/4-ordered/Stav4",
-            "/mnt/other_ubunthu/mnt/data/6-ordered/Stav6"
-        ]
-        for s in suggested_sessions:
-            if os.path.exists(s):
-                try:
-                    state.load_session(s)
-                    break
-                except Exception as e:
-                    print(f"Error loading initial session {s}: {e}")
+    # if not state.session_path:
+    #     suggested_sessions = [
+    #         "/mnt/other_ubunthu/mnt/data/1-ordered/Stav1",
+    #         "/mnt/other_ubunthu/mnt/data/4-ordered/Stav4",
+    #         "/mnt/other_ubunthu/mnt/data/6-ordered/Stav6"
+    #     ]
+    #     for s in suggested_sessions:
+    #         if os.path.exists(s):
+    #             try:
+    #                 # state.load_session(s)
+    #                 break
+    #             except Exception as e:
+    #                 print(f"Error loading initial session {s}: {e}")
                 
-    server = ThreadingHTTPServer(('localhost', port), DashHandler)
+    server = HTTPServer(('localhost', port), DashHandler)
     print(f"\n==================================================================")
     print(f"  Suite2p AI Decision Explainer Server is running!")
     print(f"  --> Local Address: http://localhost:{port}")

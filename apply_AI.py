@@ -7,6 +7,7 @@ import warnings
 import json
 from scipy.stats import skew
 from scipy.signal import find_peaks, peak_widths
+from fe_engine.fe_definitions import FEATURE_REGISTRY
 
 warnings.filterwarnings("ignore")
 
@@ -378,6 +379,26 @@ def extract_features(F, Fneu, stat, num_features_or_names, custom_features=None)
         elif name == 'range_fcorr_norm':
             X[:, col_idx] = (np.max(F_corr, axis=1) - np.min(F_corr, axis=1)) / std_diff_fcorr
             
+        elif name in FEATURE_REGISTRY:
+            cache = {
+                'stat': stat,
+                'F': F,
+                'Fneu': Fneu,
+                '_fcorr': F_corr,
+                'npix': npix_vals,
+                'solidity': solidity_vals,
+                'mrs': mrs_vals,
+                'compact': compact_vals,
+                'aspect_ratio': aspect_ratio_vals,
+                'radius': radius_vals,
+                'number_of_bright_pixels': bright_pix,
+                'bright_pixels_ratio': np.where(npix_vals > 0, bright_pix / npix_vals, 0.0),
+                'avg_asym': avg_asym_arr,
+                'max_asym': max_asym_arr,
+                'max_width': max_width_arr,
+            }
+            X[:, col_idx] = FEATURE_REGISTRY[name](cache)
+            
         else:
             print(f"Warning: Unknown feature name '{name}'. Defaulting to 0.0.")
             X[:, col_idx] = 0.0
@@ -458,7 +479,7 @@ def suppress_duplicate_rois(stat, probs, preds, F, dist_threshold=15.0, corr_thr
 # ==========================================
 # 2. INFERENCE LOGIC
 # ==========================================
-def run_ai_pipeline(session_path, model_spec=None, scaler_spec=None, save_iscell=True):
+def run_ai_pipeline(session_path, model_spec=None, scaler_spec=None, save_iscell=True, custom_features=None):
     """
     Unified single-source-of-truth inference pipeline for AI predictions on a Suite2p session.
     Used by both apply_AI.py CLI and investigate_cell.py Web UI.
@@ -552,7 +573,56 @@ def run_ai_pipeline(session_path, model_spec=None, scaler_spec=None, save_iscell
     spks_path = session_path / 'spks.npy'
     spks = np.load(spks_path, mmap_mode='r') if spks_path.exists() else None
 
-    X = extract_features(F, Fneu, stat, feature_names, custom_features=custom_features)
+    # Try to load from fe_engine cache first to save time!
+    import hashlib
+    path_hash = hashlib.md5(str(session_path.resolve()).encode()).hexdigest()
+    cache_file = Path('preprocessed_cache') / f'preprocessed_{path_hash}.npz'
+    
+    X = None
+    if cache_file.exists():
+        try:
+            data = np.load(cache_file, allow_pickle=True)
+            cache_dict = {k: data[k] for k in data.files}
+            
+            # Identify missing features
+            missing_features = [name for name in feature_names if name not in cache_dict]
+            
+            if not missing_features:
+                X_feats = []
+                for name in feature_names:
+                    X_feats.append(cache_dict[name].reshape(-1, 1))
+                X = np.hstack(X_feats)
+                print(f"Loaded {len(feature_names)} features instantly from cache in apply_AI.py!")
+            else:
+                # We need to compute missing features dynamically, but we can reuse cached features!
+                print(f"Cache hit! Reusing {len(feature_names) - len(missing_features)} cached features. Computing {len(missing_features)} missing features...")
+                
+                # Compute missing features dynamically
+                try:
+                    from investigate_cell import extract_features_vectorized
+                    X_missing = extract_features_vectorized(F, Fneu, spks, stat, missing_features, custom_features=custom_features)
+                except ImportError:
+                    X_missing = extract_features(F, Fneu, stat, missing_features, custom_features=custom_features)
+                    
+                # Combine cached and missing features
+                X_feats = []
+                for i, name in enumerate(feature_names):
+                    if name in cache_dict:
+                        X_feats.append(cache_dict[name].reshape(-1, 1))
+                    else:
+                        missing_idx = missing_features.index(name)
+                        X_feats.append(X_missing[:, missing_idx].reshape(-1, 1))
+                X = np.hstack(X_feats)
+                
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            
+    if X is None:
+        try:
+            from investigate_cell import extract_features_vectorized
+            X = extract_features_vectorized(F, Fneu, spks, stat, feature_names, custom_features=custom_features)
+        except ImportError:
+            X = extract_features(F, Fneu, stat, feature_names, custom_features=custom_features)
     
     # Process scaler if provided
     X_proc = X

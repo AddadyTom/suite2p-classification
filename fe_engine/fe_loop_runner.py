@@ -73,46 +73,57 @@ def extract_features_dataset(sessions, active_features, session_callback=None):
                 del eval_cache[feat]
                 
         session_features = []
-        for name in active_features:
-            if name not in FEATURE_REGISTRY:
-                raise ValueError(f"Feature '{name}' is not defined in fe_definitions.py FEATURE_REGISTRY.")
-            
-            # If the feature has not been computed in this context, compute and cache it
-            if name not in eval_cache:
-                # Load raw traces on demand using memory mapping if not loaded
-                if 'F' not in eval_cache:
-                    # session_path can be saved as array in npz, extract it as string
-                    raw_path_str = eval_cache['session_path']
-                    if isinstance(raw_path_str, np.ndarray):
-                        raw_path_str = raw_path_str.item()
-                    raw_path = Path(raw_path_str)
+        # Load full mmaps
+        F_full = np.load(Path(session['session_path'].item() if isinstance(session['session_path'], np.ndarray) else session['session_path']) / 'F.npy', mmap_mode='r')
+        Fneu_full = np.load(Path(session['session_path'].item() if isinstance(session['session_path'], np.ndarray) else session['session_path']) / 'Fneu.npy', mmap_mode='r')
+        n_cells = F_full.shape[0]
+        
+        # We need to precompute session_scale because it requires the full session
+        # To avoid OOM, compute session scale in chunks
+        chunk_size = 500
+        stds = []
+        for i in range(0, n_cells, chunk_size):
+            f_c = F_full[i:i+chunk_size] - 0.7 * Fneu_full[i:i+chunk_size]
+            diff_c = np.diff(f_c, axis=1)
+            stds.append(np.std(diff_c, axis=1))
+        med_std = np.median(np.concatenate(stds))
+        session_scale_val = max(med_std, 1e-6)
+        
+        # Now process active features in chunks
+        chunk_features_list = []
+        for i in range(0, n_cells, chunk_size):
+            chunk_cache = {}
+            # Copy non-trace scalar features for this chunk
+            for k, v in session.items():
+                if isinstance(v, np.ndarray) and getattr(v, 'ndim', 0) > 0 and len(v) == n_cells:
+                    chunk_cache[k] = v[i:i+chunk_size]
+                else:
+                    chunk_cache[k] = v
                     
-                    eval_cache['F'] = np.load(raw_path / 'F.npy', mmap_mode='r')
-                    eval_cache['Fneu'] = np.load(raw_path / 'Fneu.npy', mmap_mode='r')
-                
-                feat_val = FEATURE_REGISTRY[name](eval_cache)
-                eval_cache[name] = feat_val
-            else:
-                feat_val = eval_cache[name]
-                
-            session_features.append(feat_val.reshape(-1, 1))
+            chunk_cache['F'] = F_full[i:i+chunk_size]
+            chunk_cache['Fneu'] = Fneu_full[i:i+chunk_size]
+            chunk_cache['_session_scale'] = np.full(chunk_cache['F'].shape[0], session_scale_val, dtype=np.float32)
             
-        X_sess = np.hstack(session_features)
+            chunk_feats = []
+            for name in active_features:
+                if name not in FEATURE_REGISTRY:
+                    raise ValueError(f"Feature '{name}' is not defined.")
+                
+                # Check if it was deleted (i.e. we need to recompute it) or if it's new
+                if name not in chunk_cache or name in TRACE_FEATURES:
+                    feat_val = FEATURE_REGISTRY[name](chunk_cache)
+                    chunk_cache[name] = feat_val
+                else:
+                    feat_val = chunk_cache[name]
+                
+                chunk_feats.append(feat_val.reshape(-1, 1))
+            
+            chunk_features_list.append(np.hstack(chunk_feats))
+            
+        X_sess = np.vstack(chunk_features_list)
         X_list.append(X_sess)
         y_list.append(session['y'])
         groups_list.append(session['group_id'])
-        
-        # Clean up loaded trace arrays immediately to save memory
-        if 'F' in eval_cache:
-            del eval_cache['F']
-        if 'Fneu' in eval_cache:
-            del eval_cache['Fneu']
-        if '_fcorr' in eval_cache:
-            del eval_cache['_fcorr']
-        if '_quantiles_map' in eval_cache:
-            del eval_cache['_quantiles_map']
-        if '_session_scale' in eval_cache:
-            del eval_cache['_session_scale']
         gc.collect()
         
     X = np.vstack(X_list)
