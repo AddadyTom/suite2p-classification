@@ -61,8 +61,8 @@ def train_and_save(output_path=None, model_name=None, description=None, features
             m = re.search(r'inbar(\d+)', name) or re.search(r'inbar(\d+)', path)
             if m:
                 num = int(m.group(1))
-                if num > 10:
-                    print(f" Skipping Inbar{num} session (>10): {s.get('session_name')}")
+                if num in [7, 8]:
+                    print(f" Skipping Inbar{num} session (excluded): {s.get('session_name')}")
                     continue
             target_sessions.append(s)
             continue
@@ -76,6 +76,21 @@ def train_and_save(output_path=None, model_name=None, description=None, features
         target_sessions.append(s)
         
     print(f"\nFiltered training set: {len(target_sessions)} sessions.")
+    
+    # Override ground truth dynamically
+    for s in target_sessions:
+        session_path = Path(s['session_path'].item() if isinstance(s['session_path'], np.ndarray) else s['session_path'])
+        iscell_backup = session_path / "iscell_backup_before_AI.npy"
+        if iscell_backup.exists():
+            print(f"Loading GT from iscell_backup_before_AI.npy for {s['session_name']}")
+            gt = np.load(iscell_backup)
+        else:
+            iscell_file = session_path / "iscell.npy"
+            print(f"Loading GT from iscell.npy for {s['session_name']}")
+            gt = np.load(iscell_file)
+        
+        # Override the preprocessed 'y' which might be stale or overwritten
+        s['y'] = gt[:, 0]
     
     # 3. Compile datasets
     X, y, groups = extract_features_dataset(target_sessions, target_features)
