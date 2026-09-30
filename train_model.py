@@ -17,7 +17,7 @@ except ImportError:
     HAS_XGB = False
 
 def train_and_save(output_path=None, model_name=None, description=None, features_list=None,
-                   include_bright_pixels=False, deep=False, use_xgb=False, inbar_only=False):
+                   include_bright_pixels=False, deep=False, use_xgb=False, inbar_only=False, stav_only=False):
     base_dir = Path(__file__).parent.resolve()
     
     target_features = list(features_list) if features_list else list(ACTIVE_FEATURES)
@@ -67,6 +67,13 @@ def train_and_save(output_path=None, model_name=None, description=None, features
             target_sessions.append(s)
             continue
             
+        if stav_only:
+            if 'stav' not in name and 'stav' not in path:
+                print(f" Skipping non-Stav session: {s.get('session_name')}")
+                continue
+            target_sessions.append(s)
+            continue
+            
         if 'yael' in name or 'yael' in path:
             print(f" Skipping Yael session: {s.get('session_name')}")
             continue
@@ -78,19 +85,26 @@ def train_and_save(output_path=None, model_name=None, description=None, features
     print(f"\nFiltered training set: {len(target_sessions)} sessions.")
     
     # Override ground truth dynamically
+    valid_sessions = []
     for s in target_sessions:
         session_path = Path(s['session_path'].item() if isinstance(s['session_path'], np.ndarray) else s['session_path'])
         iscell_backup = session_path / "iscell_backup_before_AI.npy"
+        iscell_file = session_path / "iscell.npy"
+        
         if iscell_backup.exists():
             print(f"Loading GT from iscell_backup_before_AI.npy for {s['session_name']}")
             gt = np.load(iscell_backup)
-        else:
-            iscell_file = session_path / "iscell.npy"
+            s['y'] = gt[:, 0]
+            valid_sessions.append(s)
+        elif iscell_file.exists():
             print(f"Loading GT from iscell.npy for {s['session_name']}")
             gt = np.load(iscell_file)
-        
-        # Override the preprocessed 'y' which might be stale or overwritten
-        s['y'] = gt[:, 0]
+            s['y'] = gt[:, 0]
+            valid_sessions.append(s)
+        else:
+            print(f"Skipping {s['session_name']}: No ground truth file found (missing iscell.npy and backup).")
+            
+    target_sessions = valid_sessions
     
     # 3. Compile datasets
     X, y, groups = extract_features_dataset(target_sessions, target_features)
@@ -242,6 +256,7 @@ if __name__ == "__main__":
     parser.add_argument('--deep', action='store_true', help="Use deeper trees: max_depth=12, num_leaves=127")
     parser.add_argument('--xgb', action='store_true', help="Use XGBoost instead of LightGBM")
     parser.add_argument('--inbar-only', action='store_true', help="Train ONLY on Inbar 1-10 sessions")
+    parser.add_argument('--stav-only', action='store_true', help="Train ONLY on Stav sessions")
     args = parser.parse_args()
 
     features_list = [f.strip() for f in args.features.split(",")] if args.features else None
@@ -254,5 +269,6 @@ if __name__ == "__main__":
         features_list=features_list,
         deep=args.deep,
         use_xgb=args.xgb,
-        inbar_only=args.inbar_only
+        inbar_only=args.inbar_only,
+        stav_only=args.stav_only
     )
