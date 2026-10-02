@@ -252,6 +252,62 @@ def get_mean_diff_f_fneu(cache):
     diff = np.mean(cache['F'], axis=1) - np.mean(cache['Fneu'], axis=1)
     return np.squeeze(diff / session_scale)
 
+# --- Intensity-normalized trace features ---
+# The raw-unit quantile/range features above scale with ROI brightness and
+# session gain. These are expressed in dF/F or in units of the trace's own
+# noise level, so they are comparable across ROIs and sessions.
+
+def _get_norm_stats(cache):
+    if '_norm_stats' not in cache:
+        F_corr = _get_fcorr(cache)
+        pcts = [1, 50, 95, 99, 99.9]
+        q = dict(zip(pcts, np.percentile(F_corr, pcts, axis=1)))
+        # dF/F baseline: median of the raw (always positive) F trace
+        f0 = np.maximum(np.median(cache['F'], axis=1), 1e-6)
+        # Robust per-frame noise: MAD of first differences; diff of iid noise
+        # has sqrt(2) times the per-frame std
+        d = np.diff(F_corr, axis=1)
+        mad = np.median(np.abs(d - np.median(d, axis=1, keepdims=True)), axis=1)
+        noise = np.maximum(1.4826 * mad / np.sqrt(2), 1e-6)
+        cache['_norm_stats'] = {
+            'q': q, 'max': np.max(F_corr, axis=1), 'f0': f0, 'noise': noise,
+            'fneu_med': np.maximum(np.median(cache['Fneu'], axis=1), 1e-6),
+        }
+    return cache['_norm_stats']
+
+def _dff(cache, val):
+    s = _get_norm_stats(cache)
+    return (val - s['q'][50]) / s['f0']
+
+def _noise_units(cache, val):
+    s = _get_norm_stats(cache)
+    return (val - s['q'][50]) / s['noise']
+
+def get_dff_q95(cache): return _dff(cache, _get_norm_stats(cache)['q'][95])
+def get_dff_q99(cache): return _dff(cache, _get_norm_stats(cache)['q'][99])
+def get_dff_q999(cache): return _dff(cache, _get_norm_stats(cache)['q'][99.9])
+def get_dff_max(cache): return _dff(cache, _get_norm_stats(cache)['max'])
+
+def get_dff_range(cache):
+    s = _get_norm_stats(cache)
+    return (s['q'][99] - s['q'][1]) / s['f0']
+
+def get_q95_over_noise(cache): return _noise_units(cache, _get_norm_stats(cache)['q'][95])
+def get_q99_over_noise(cache): return _noise_units(cache, _get_norm_stats(cache)['q'][99])
+def get_q999_over_noise(cache): return _noise_units(cache, _get_norm_stats(cache)['q'][99.9])
+
+def get_range_over_noise(cache):
+    s = _get_norm_stats(cache)
+    return (s['q'][99] - s['q'][1]) / s['noise']
+
+def get_noise_over_f0(cache):
+    s = _get_norm_stats(cache)
+    return s['noise'] / s['f0']
+
+def get_f_over_fneu_baseline(cache):
+    s = _get_norm_stats(cache)
+    return s['f0'] / s['fneu_med']
+
 # ==========================================
 # 2. FEATURE REGISTRY (strictly dictionary based)
 # ==========================================
@@ -302,7 +358,24 @@ FEATURE_REGISTRY = {
     'peak_to_q95_ratio': get_peak_to_q95_ratio,
     'range_ratio_f_fneu': get_range_ratio_f_fneu,
     'mean_diff_f_fneu': get_mean_diff_f_fneu,
+    'dff_q95': get_dff_q95,
+    'dff_q99': get_dff_q99,
+    'dff_q999': get_dff_q999,
+    'dff_max': get_dff_max,
+    'dff_range': get_dff_range,
+    'q95_over_noise': get_q95_over_noise,
+    'q99_over_noise': get_q99_over_noise,
+    'q999_over_noise': get_q999_over_noise,
+    'range_over_noise': get_range_over_noise,
+    'noise_over_f0': get_noise_over_f0,
+    'f_over_fneu_baseline': get_f_over_fneu_baseline,
 }
+
+TRACE_NORM_FEATURES = [
+    'dff_q95', 'dff_q99', 'dff_q999', 'dff_max', 'dff_range',
+    'q95_over_noise', 'q99_over_noise', 'q999_over_noise', 'range_over_noise',
+    'noise_over_f0', 'f_over_fneu_baseline',
+]
 
 # ==========================================
 # 3. ACTIVE FEATURES LIST (Modified during FE)
