@@ -1,129 +1,65 @@
-# Suite2p Cell Classification Explainer & Curation Dashboard
+# Suite2p ROI Classification
 
-This workspace contains a unified, self-contained suite for automated cell classification and active learning curation of Suite2p calcium imaging ROIs.
+Classifies Suite2p ROIs as cell / not-cell with a LightGBM model (27 features), plus a local web dashboard for curation and feature exploration.
 
-It features a shape-invariant morphology and trace-kinetics feature engine, a LightGBM classifier with 5-fold cross-validated training logic, and an interactive frontend dashboard for visual inspection, real-time threshold tuning, and SHAP decision explanations.
+## Layout
 
----
-
-## 🚀 Key Features & UI Dashboard
-
-1. **Interactive Curation & Feature Playground**:
-   - Visual curation interface displaying ROIs alongside traces (Raw, Neuropil, Corrected).
-   - Adjust classification thresholds with a real-time slider that instantly plots changes in **F1-Score**, **Precision**, and **Recall**.
-   - Keyboard curation using Arrow Keys to browse cells and the Spacebar to toggle labels.
-   
-2. **SHAP-Ranked Feature Directory**:
-   - All active features are ordered dynamically by their cross-validated SHAP impact descending.
-   - Click any feature to view its exact mathematical Python formula, biological rationale, and syntax-highlighted execution code.
-   - Interactive search and filter controls for feature directory discovery.
-   - Real-time custom formula evaluator allowing you to type, test, and inject custom mathematical combinations of features on the fly.
-
-3. **Machine Learning Classifier**:
-   - Fast, robust LightGBM model trained using GroupKFold cross-validation on 22 imaging sessions (67,778 candidate cells).
-   - Evaluates to `0.863` Precision, `0.850` Recall, and `0.856` F1 Score.
-
----
-
-## 📦 Installation & Setup (Colleague's / Professor's Computer)
-
-### 1. Clone the Repository
-Clone the repository to get the code, scripts, and the pre-trained LightGBM model:
-```bash
-git clone git@github.com:AddadyTom/suite2p-classification.git
-cd suite2p-classification
+```
+fe_engine/                   feature engine (single source of feature definitions)
+  fe_definitions.py          feature functions, FEATURE_REGISTRY, ACTIVE_FEATURES
+  fe_preprocessor.py         step 1: Suite2p sessions -> preprocessed_cache/*.npz
+  fe_loop_runner.py          CV + SHAP feature-selection loop (writes fe_baseline.json, fe_report.md)
+train_model.py               step 2: train on preprocessed_cache/ -> models/regular/
+apply_AI.py                  inference: predict and overwrite iscell.npy for one session
+eval_session.py              score a model against a session's ground-truth labels
+investigate_cell.py          curation / explainer dashboard (http://localhost:5000)
+playground.html              feature playground page served by the dashboard at /playground
+models/regular/              trained model (.pkl) + its feature list (.json)
+docs/                        feature reference PDF
 ```
 
-### 2. Create a Virtual Environment
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-### 3. Install Dependencies
-```bash
-pip install numpy scipy scikit-learn lightgbm joblib
-```
-
----
-
-## 📂 Model & Data Locations
-
-### Where is the trained model located?
-* **No action required**: The trained classifier and feature metadata are **pre-packaged inside the repository** under:
-  - Model Binary: `models/regular/suite2p_best_lgb.pkl`
-  - Model Metadata: `models/regular/suite2p_best_lgb.json`
-* When running the code, the scripts automatically detect and load the model from this folder relative to the repository root.
-
-### Where should I put my imaging data?
-* **Anywhere on your computer**: You do not need to move your data inside the repository.
-* The imaging folder must be a standard Suite2p plane output directory (e.g. `plane0`) containing:
-  - `stat.npy`, `F.npy`, `Fneu.npy`, and `iscell.npy` (or a ground truth manual/final labels file).
-* Simply pass the absolute path to your folder when running the scripts (see below).
-
----
-
-## 💻 How to Run the Explainer Dashboard
-
-To launch the interactive dashboard on a local Suite2p folder:
+## Install
 
 ```bash
-PYTHONPATH=. .venv/bin/python investigate_cell.py --port 5000 --session /path/to/your/suite2p/plane0
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
-1. Open your browser and navigate to `http://localhost:5000`.
-2. Inspect individual cells, view their SHAP contribution breakdown, check classification statistics, or type custom formula expressions in the playground.
+## Data
 
----
+A session is a Suite2p plane folder (e.g. `plane0`) with `stat.npy`, `F.npy`, `Fneu.npy` and labels (`iscell_final.npy`, `iscell_manual.npy` or `iscell.npy`). Data stays outside the repo; pass its path on the command line.
 
-## ⚙️ Running Automated Inference (Command Line)
+## Usage
 
-If you want to run the classifier and apply predictions directly to the `iscell.npy` file without launching the web interface:
+All commands run from the repository root.
 
+**Classify a session** (backs up `iscell.npy` to `iscell_backup_before_AI.npy`, then overwrites it with predictions and probabilities):
 ```bash
-python apply_AI.py /path/to/your/suite2p/plane0 regular
+python apply_AI.py /path/to/suite2p/plane0            # uses models/regular
+python apply_AI.py /path/to/suite2p/plane0 my_model.pkl
 ```
 
-* **What it does**: 
-  1. Backs up the original `iscell.npy` file.
-  2. Extracts the 30 active features.
-  3. Applies the F1-optimized decision threshold.
-  4. Runs Non-Maximum Suppression (NMS) to prune overlapping ROIs.
-  5. Overwrites `iscell.npy` with the predicted classifications (0/1) and exact probability scores.
-
----
-
-## 🛠 How to Add or Remove Features
-
-All feature definitions are managed in a single file: [`fe_engine/fe_definitions.py`](fe_engine/fe_definitions.py).
-
-### A. Removing a Feature
-1. Open [`fe_engine/fe_definitions.py`](fe_engine/fe_definitions.py).
-2. Scroll down to `ACTIVE_FEATURES = [...]` (around line 300).
-3. Remove the target feature name string from the array.
-
-### B. Adding a Feature
-1. Open [`fe_engine/fe_definitions.py`](fe_engine/fe_definitions.py) and write an extractor function that takes `cache` and returns a 1D numpy array:
-   ```python
-   def get_my_feature(cache):
-       F_corr = _get_fcorr(cache) # (n_cells, n_frames)
-       return np.mean(F_corr, axis=1) # (n_cells,)
-   ```
-2. Register it in `FEATURE_REGISTRY`:
-   ```python
-   FEATURE_REGISTRY = {
-       ...
-       'my_feature': get_my_feature,
-   }
-   ```
-3. Add the string `'my_feature'` to `ACTIVE_FEATURES`.
-
----
-
-## 🎯 Retraining the Model
-
-Once you have changed the active feature set, run:
+**Evaluate against ground truth:**
 ```bash
-.venv/bin/python train_model.py
+python eval_session.py /path/to/suite2p/plane0 --model models/regular/suite2p_best_lgb.pkl
 ```
-This script will compile all cached sessions, run a 5-fold cross-validation, display average scores, and save the updated classifier to `models/regular/suite2p_best_lgb.pkl` along with its feature schema JSON.
+
+**Dashboard:**
+```bash
+python investigate_cell.py --session /path/to/suite2p/plane0 --port 5000
+```
+
+**Retrain:**
+```bash
+python fe_engine/fe_preprocessor.py --source /path/to/all/sessions   # once, builds preprocessed_cache/
+python train_model.py                                                # 5-fold GroupKFold CV, then saves models/regular/
+```
+Sessions whose name or path contains "yael" are excluded from training.
+
+## Adding or removing a feature
+
+1. In `fe_engine/fe_definitions.py`, write `def get_my_feature(cache): ...` returning one value per ROI.
+2. Register it in `FEATURE_REGISTRY` and add its name to `ACTIVE_FEATURES` (remove a name to drop a feature).
+3. Run `python train_model.py`.
+
+Note: `apply_AI.py` computes features with its own `extract_features`, separately from `fe_engine/`, so a new feature also needs to be added there before inference can use it.

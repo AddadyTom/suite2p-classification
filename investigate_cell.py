@@ -12,6 +12,9 @@ import webbrowser
 import threading
 from fe_engine.fe_definitions import FEATURE_REGISTRY
 
+# Repository root: models, playground.html and preprocessed_cache/ are resolved from here
+REPO_ROOT = Path(__file__).parent.resolve()
+
 # ==========================================
 # 1. MASTER FEATURE DEFINITIONS & PRESETS
 # ==========================================
@@ -917,13 +920,13 @@ class SessionState:
         self.ref_noncells_means = None
         
     def scan_models(self):
-        dir_path = Path("/home/tomer/Documents/suite2p-iscell-prediction")
+        dir_path = REPO_ROOT
         models = [str(f.relative_to(dir_path)) for f in dir_path.rglob("*.pkl") if "scaler" not in f.name and not any("venv" in p for p in f.parts)]
         scalers = [str(f.relative_to(dir_path)) for f in dir_path.rglob("*scaler*.pkl") if not any("venv" in p for p in f.parts)]
         return sorted(models), sorted(scalers)
 
     def load_model(self, model_name, scaler_name=None):
-        dir_path = Path("/home/tomer/Documents/suite2p-iscell-prediction")
+        dir_path = REPO_ROOT
         
         m_path = Path(model_name)
         if m_path.is_absolute() and m_path.exists():
@@ -1092,7 +1095,7 @@ class SessionState:
         self.load_dataset_averages()
 
     def load_dataset_averages(self):
-        dir_path = Path("/home/tomer/Documents/suite2p-iscell-prediction")
+        dir_path = REPO_ROOT
         if self.num_features in (24, 27, 28):
             dataset_file = dir_path / "X_all_stav.npy"
             labels_file = dir_path / "y_all_stav.npy"
@@ -1837,7 +1840,7 @@ class DashHandler(BaseHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header('Content-type', 'text/html; charset=utf-8')
                 self.end_headers()
-                pg_path = Path("/home/tomer/Documents/suite2p-iscell-prediction/playground.html")
+                pg_path = REPO_ROOT / "playground.html"
                 with open(pg_path, 'r', encoding='utf-8') as f:
                     html_content = f.read()
                 self.wfile.write(html_content.encode('utf-8'))
@@ -1858,7 +1861,7 @@ class DashHandler(BaseHTTPRequestHandler):
                 
                 # Fetch baseline/active model predictions for all cached sessions
                 from fe_engine.fe_loop_runner import load_preprocessed_data
-                workspace_dir = Path("/home/tomer/Documents/suite2p-iscell-prediction")
+                workspace_dir = REPO_ROOT
                 cache_dir = workspace_dir / "preprocessed_cache"
                 sessions = load_preprocessed_data(cache_dir)
                 
@@ -1954,7 +1957,7 @@ class DashHandler(BaseHTTPRequestHandler):
                 
                 from fe_engine.fe_loop_runner import load_preprocessed_data, extract_features_dataset, run_cross_validation, analyze_errors_and_shap
                 from fe_engine.fe_definitions import safe_eval_formula
-                workspace_dir = Path("/home/tomer/Documents/suite2p-iscell-prediction")
+                workspace_dir = REPO_ROOT
                 cache_dir = workspace_dir / "preprocessed_cache"
                 
                 sessions = load_preprocessed_data(cache_dir)
@@ -2154,7 +2157,7 @@ class DashHandler(BaseHTTPRequestHandler):
                 feats_str = params.get('features', [''])[0]
                 feats = [f.strip() for f in feats_str.split(',') if f.strip()]
                 
-                workspace_dir = Path("/home/tomer/Documents/suite2p-iscell-prediction")
+                workspace_dir = REPO_ROOT
                 baseline_path = workspace_dir / "fe_baseline.json"
                 
                 baseline = {
@@ -2177,7 +2180,7 @@ class DashHandler(BaseHTTPRequestHandler):
                 if not feature_name:
                     raise ValueError("No feature name specified.")
                 
-                workspace_dir = Path("/home/tomer/Documents/suite2p-iscell-prediction")
+                workspace_dir = REPO_ROOT
                 cache_dir = workspace_dir / "preprocessed_cache"
                 
                 import fe_engine.fe_definitions
@@ -2252,7 +2255,7 @@ class DashHandler(BaseHTTPRequestHandler):
                 from fe_engine.fe_definitions import FEATURE_REGISTRY, safe_eval_formula
                 import fe_engine.fe_definitions
                 from fe_engine.fe_loop_runner import load_preprocessed_data, extract_features_dataset, update_definitions_file
-                workspace_dir = Path("/home/tomer/Documents/suite2p-iscell-prediction")
+                workspace_dir = REPO_ROOT
                 cache_dir = workspace_dir / "preprocessed_cache"
                 
                 sessions = load_preprocessed_data(cache_dir)
@@ -4319,7 +4322,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
 def run_server(port=5000):
     # Determine default model to load
-    dir_path = Path("/home/tomer/Documents/suite2p-iscell-prediction")
+    dir_path = REPO_ROOT
     
     # Pre-load best LGB if available, else MLP
     models = [str(f.relative_to(dir_path)) for f in dir_path.rglob("*.pkl") if "scaler" not in f.name and not any("venv" in p for p in f.parts)]
