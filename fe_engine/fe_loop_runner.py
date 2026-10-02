@@ -100,8 +100,8 @@ def extract_features_dataset(sessions, active_features, session_callback=None):
                 else:
                     chunk_cache[k] = v
                     
-            chunk_cache['F'] = F_full[i:i+chunk_size]
-            chunk_cache['Fneu'] = Fneu_full[i:i+chunk_size]
+            chunk_cache['F'] = np.array(F_full[i:i+chunk_size])
+            chunk_cache['Fneu'] = np.array(Fneu_full[i:i+chunk_size])
             chunk_cache['_session_scale'] = np.full(chunk_cache['F'].shape[0], session_scale_val, dtype=np.float32)
             
             chunk_feats = []
