@@ -9,3 +9,8 @@ feature_cache/
 
 # Large Datasets
 *.npy
+
+# Local training artifacts (created by fe_engine/ and the dashboard)
+preprocessed_cache/
+fe_baseline.json
+fe_report.md

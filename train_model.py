@@ -9,11 +9,13 @@ from pathlib import Path
 from fe_engine.fe_loop_runner import load_preprocessed_data, extract_features_dataset
 from fe_engine.fe_definitions import ACTIVE_FEATURES
 
+REPO_ROOT = Path(__file__).parent.resolve()
+
 def train_and_save():
     print(f"Starting training pipeline with {len(ACTIVE_FEATURES)} active features...")
     
     # 1. Load preprocessed sessions
-    cache_dir = Path("preprocessed_cache")
+    cache_dir = REPO_ROOT / "preprocessed_cache"
     if not cache_dir.exists():
         raise FileNotFoundError("preprocessed_cache directory not found! Run preprocessing first.")
         
@@ -117,7 +119,7 @@ def train_and_save():
     final_model.fit(X, y, feature_name=ACTIVE_FEATURES)
     
     # Save model and metadata config
-    model_dir = Path("models/regular")
+    model_dir = REPO_ROOT / "models" / "regular"
     model_dir.mkdir(parents=True, exist_ok=True)
     
     model_path = model_dir / "suite2p_best_lgb.pkl"

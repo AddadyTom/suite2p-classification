@@ -473,7 +473,6 @@ def apply_active_learning(session_path, model_spec='regular'):
     # Map preset model names to paths
     model_map = {
         'regular': base_dir / 'models' / 'regular' / 'suite2p_best_lgb.pkl',
-        'rich': base_dir / 'models' / 'rich' / 'suite2p_best_lgb.pkl',
     }
 
     model_path = model_spec
@@ -484,7 +483,7 @@ def apply_active_learning(session_path, model_spec='regular'):
 
     if not model_path.exists():
         print(f"Error: Model file '{model_path}' not found.")
-        print("Available presets: 'regular', 'rich'")
+        print("Available presets: 'regular'")
         return
 
     print(f"Loading model: {model_path}...")
@@ -615,8 +614,7 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: python apply_AI.py <path_to_suite2p_session_folder> [model_preset_or_path]")
         print("\nPresets:")
-        print("  regular   - LightGBM with Continuous Index (25 features, Recommended Default)")
-        print("  rich      - LightGBM with Rich Features (38 features)")
+        print("  regular   - LightGBM, 27 features (default)")
     else:
         model_choice = sys.argv[2] if len(sys.argv) > 2 else 'regular'
         apply_active_learning(sys.argv[1], model_choice)
