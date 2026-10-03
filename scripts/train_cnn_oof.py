@@ -26,6 +26,8 @@ from sklearn.model_selection import GroupKFold
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from scripts.evaluate_cv import load_tables
 
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 
 class ROICNN(nn.Module):
     def __init__(self, in_ch=4):
@@ -50,11 +52,11 @@ def augment(x):
 
 def train(X, y, epochs, seed, batch=256):
     torch.manual_seed(seed)
-    net = ROICNN(X.shape[1])
+    net = ROICNN(X.shape[1]).to(DEVICE)
     opt = torch.optim.AdamW(net.parameters(), lr=2e-3, weight_decay=1e-4)
     steps = epochs * int(np.ceil(len(y) / batch))
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=2e-3, total_steps=steps)
-    pos_w = torch.tensor((y == 0).sum() / max((y == 1).sum(), 1), dtype=torch.float32)
+    pos_w = torch.tensor((y == 0).sum() / max((y == 1).sum(), 1), dtype=torch.float32, device=DEVICE)
     loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_w)
     yt = torch.from_numpy(y.astype(np.float32))
     net.train()
@@ -62,8 +64,8 @@ def train(X, y, epochs, seed, batch=256):
         perm = torch.randperm(len(y))
         for i in range(0, len(y), batch):
             idx = perm[i:i + batch]
-            xb = augment(torch.from_numpy(X[idx.numpy()].astype(np.float32)))
-            loss = loss_fn(net(xb), yt[idx])
+            xb = augment(torch.from_numpy(X[idx.numpy()].astype(np.float32)).to(DEVICE))
+            loss = loss_fn(net(xb), yt[idx].to(DEVICE))
             opt.zero_grad()
             loss.backward()
             opt.step()
@@ -72,14 +74,26 @@ def train(X, y, epochs, seed, batch=256):
 
 
 @torch.no_grad()
+def embed(net, X, batch=1024):
+    """64-dim penultimate activations (input to the final linear layer), flip-averaged."""
+    net.eval()
+    trunk = lambda x: net.head[:-1](net.features(x))
+    out = []
+    for i in range(0, len(X), batch):
+        xb = torch.from_numpy(X[i:i + batch].astype(np.float32)).to(DEVICE)
+        out.append(((trunk(xb) + trunk(xb.flip(3).contiguous())) / 2).cpu().numpy())
+    return np.concatenate(out)
+
+
+@torch.no_grad()
 def predict(net, X, batch=1024):
     net.eval()
     out = []
     for i in range(0, len(X), batch):
-        xb = torch.from_numpy(X[i:i + batch].astype(np.float32))
+        xb = torch.from_numpy(X[i:i + batch].astype(np.float32)).to(DEVICE)
         # light test-time augmentation: identity + horizontal flip
         logits = (net(xb) + net(xb.flip(3).contiguous())) / 2
-        out.append(torch.sigmoid(logits).numpy())
+        out.append(torch.sigmoid(logits).cpu().numpy())
     return np.concatenate(out)
 
 
@@ -93,8 +107,12 @@ def main():
     ap.add_argument('--inner', type=int, default=3)
     ap.add_argument('--epochs', type=int, default=6)
     ap.add_argument('--threads', type=int, default=4)
+    ap.add_argument('--save-emb', action='store_true',
+                    help="also save the 64-dim embedding per ROI, with the same nested OOF layout as the scores")
+    ap.add_argument('--tag', default='', help="suffix for the output file name")
     args = ap.parse_args()
     torch.set_num_threads(args.threads)
+    print(f"device: {DEVICE}", flush=True)
 
     X_tab, y, g, _ = load_tables(args.tables, args.exclude)
     crops = []
@@ -109,14 +127,21 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     gkf = GroupKFold(n_splits=args.folds, shuffle=True, random_state=0)  # == evaluate_cv repeat 0
     cnn = np.full((args.folds, len(y)), np.nan, dtype=np.float32)
+    emb = np.full((args.folds, len(y), 64), np.nan, dtype=np.float16) if args.save_emb else None
+    out_file = out / f"cnn_oof{args.tag}.npz"
     for k, (tr, va) in enumerate(gkf.split(X_tab, y, g)):
         t0 = time.time()
         for j, (itr, iva) in enumerate(GroupKFold(n_splits=args.inner).split(tr, y[tr], g[tr])):
             net = train(X[tr[itr]], y[tr[itr]], args.epochs, seed=100 * k + j)
             cnn[k, tr[iva]] = predict(net, X[tr[iva]])
+            if emb is not None:
+                emb[k, tr[iva]] = embed(net, X[tr[iva]])
         net = train(X[tr], y[tr], args.epochs, seed=100 * k + 99)
         cnn[k, va] = predict(net, X[va])
-        np.savez(out / 'cnn_oof.npz', cnn=cnn, y=y, groups=g, folds_done=k + 1)
+        if emb is not None:
+            emb[k, va] = embed(net, X[va])
+        np.savez(out_file, cnn=cnn, y=y, groups=g, folds_done=k + 1,
+                 **({'emb': emb} if emb is not None else {}))
         from sklearn.metrics import roc_auc_score
         print(f"fold {k}: val AUC={roc_auc_score(y[va], cnn[k, va]):.4f} "
               f"inner-OOF AUC={roc_auc_score(y[tr], cnn[k, tr]):.4f} ({time.time() - t0:.0f}s)", flush=True)
