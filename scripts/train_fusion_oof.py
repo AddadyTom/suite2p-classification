@@ -169,6 +169,9 @@ def main():
     ap.add_argument('--threads', type=int, default=6)
     ap.add_argument('--max-folds', type=int, default=None, help="stop after this many outer folds (timing runs)")
     ap.add_argument('--save-emb', action='store_true', help="also save the trace-branch embedding (nested OOF layout)")
+    ap.add_argument('--outer-emb', action='store_true',
+                    help="embedding-feature mode: one network per outer fold; its trace-branch embedding is saved "
+                         "for ALL rows so downstream models see one consistent embedding space")
     args = ap.parse_args()
     torch.set_num_threads(args.threads)
     print(f"device: {DEVICE}", flush=True)
@@ -189,11 +192,21 @@ def main():
     gkf = GroupKFold(n_splits=args.folds, shuffle=True, random_state=0)  # == evaluate_cv repeat 0
     oof = np.full((args.folds, len(y)), np.nan, dtype=np.float32)
     emb = (np.full((args.folds, len(y), 64), np.nan, dtype=np.float16)
-           if args.save_emb and 'trace' in branches else None)
+           if (args.save_emb or args.outer_emb) and 'trace' in branches else None)
+    if args.outer_emb:
+        out_file = out / f"fusion_{'_'.join(branches)}_outeremb.npz"
     for k, (tr, va) in enumerate(gkf.split(X_tab, y, g)):
         if args.max_folds is not None and k >= args.max_folds:
             break
         t0 = time.time()
+        if args.outer_emb:
+            net, sc = train(data, tr, y, branches, args.epochs, seed=100 * k + 99)
+            oof[k, va] = predict(net, sc, data, va, branches)
+            emb[k] = trace_embedding(net, sc, data, np.arange(len(y)))
+            np.savez(out_file, cnn=oof, y=y, groups=g, folds_done=k + 1, branches=args.branches,
+                     emb_trace=emb, mode='outer_emb')
+            print(f"fold {k}: val AUC={roc_auc_score(y[va], oof[k, va]):.4f} ({time.time() - t0:.0f}s)", flush=True)
+            continue
         for j, (itr, iva) in enumerate(GroupKFold(n_splits=args.inner).split(tr, y[tr], g[tr])):
             net, sc = train(data, tr[itr], y, branches, args.epochs, seed=100 * k + j)
             oof[k, tr[iva]] = predict(net, sc, data, tr[iva], branches)

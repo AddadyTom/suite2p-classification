@@ -134,6 +134,8 @@ def main():
     ap.add_argument('--fusion', default=None, help="fusion npz with 'emb_trace'")
     ap.add_argument('--rocket', default=None, help="minirocket npz with 'emb'")
     ap.add_argument('--sets', nargs='*', default=None)
+    ap.add_argument('--ref-only', action='store_true',
+                    help="on manual44 run only the LightGBM reference (for paired deltas of other sets)")
     ap.add_argument('--out', default='results/model_comparison.md')
     args = ap.parse_args()
 
@@ -148,6 +150,14 @@ def main():
         if path:
             d = np.load(path, allow_pickle=True)
             assert (d['y'] == y).all() and (d['groups'] == g).all(), f"{path}: rows do not match the CV rows"
+            outer = 'mode' in d.files and str(d['mode']) == 'outer_emb'
+            if key in ('cnn_emb', 'tracenn') and not outer:  # MiniRocket: one fixed transform per fold, fine
+                # Nested-OOF embeddings come from different networks for train vs validation rows
+                # (incompatible coordinate systems); embedding features need one encoder per fold.
+                print(f"skipping {key} from {path}: not an outer-fold embedding file")
+                continue
+            if key == 'cnn_prob' and outer:
+                continue  # outer-emb files have validation-row scores only
             if field in d.files and int(d['folds_done']) == args.folds:
                 extra[key] = d[field]
     available = {'manual44': True, 'manual44+cnn_prob': 'cnn_prob' in extra,
@@ -168,6 +178,8 @@ def main():
         left = manual if base == 'manual44' else shape_img
         return np.hstack([left, e(key)])
 
+    if args.ref_only:
+        SET_MODELS['manual44'] = ['LightGBM (current)']
     res = {(s, m): [] for s in sets for m in SET_MODELS[s]}
     for s in sets:
         if all(m in SET_MODELS[s] for m in ENSEMBLE):

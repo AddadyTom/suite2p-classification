@@ -21,6 +21,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn as nn
+from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import GroupKFold
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -110,6 +111,10 @@ def main():
     ap.add_argument('--save-emb', action='store_true',
                     help="also save the 64-dim embedding per ROI, with the same nested OOF layout as the scores")
     ap.add_argument('--tag', default='', help="suffix for the output file name")
+    ap.add_argument('--outer-emb', action='store_true',
+                    help="embedding-feature mode: one CNN per outer fold trained on the training sessions; its "
+                         "embedding is saved for ALL rows (train and validation) so downstream models see one "
+                         "consistent embedding space. No inner models; 'cnn' holds validation-row scores only.")
     args = ap.parse_args()
     torch.set_num_threads(args.threads)
     print(f"device: {DEVICE}", flush=True)
@@ -127,10 +132,18 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     gkf = GroupKFold(n_splits=args.folds, shuffle=True, random_state=0)  # == evaluate_cv repeat 0
     cnn = np.full((args.folds, len(y)), np.nan, dtype=np.float32)
-    emb = np.full((args.folds, len(y), 64), np.nan, dtype=np.float16) if args.save_emb else None
+    emb = (np.full((args.folds, len(y), 64), np.nan, dtype=np.float16)
+           if args.save_emb or args.outer_emb else None)
     out_file = out / f"cnn_oof{args.tag}.npz"
     for k, (tr, va) in enumerate(gkf.split(X_tab, y, g)):
         t0 = time.time()
+        if args.outer_emb:
+            net = train(X[tr], y[tr], args.epochs, seed=100 * k + 99)
+            cnn[k, va] = predict(net, X[va])
+            emb[k] = embed(net, X)
+            np.savez(out_file, cnn=cnn, y=y, groups=g, folds_done=k + 1, emb=emb, mode='outer_emb')
+            print(f"fold {k}: val AUC={roc_auc_score(y[va], cnn[k, va]):.4f} ({time.time() - t0:.0f}s)", flush=True)
+            continue
         for j, (itr, iva) in enumerate(GroupKFold(n_splits=args.inner).split(tr, y[tr], g[tr])):
             net = train(X[tr[itr]], y[tr[itr]], args.epochs, seed=100 * k + j)
             cnn[k, tr[iva]] = predict(net, X[tr[iva]])
@@ -142,7 +155,6 @@ def main():
             emb[k, va] = embed(net, X[va])
         np.savez(out_file, cnn=cnn, y=y, groups=g, folds_done=k + 1,
                  **({'emb': emb} if emb is not None else {}))
-        from sklearn.metrics import roc_auc_score
         print(f"fold {k}: val AUC={roc_auc_score(y[va], cnn[k, va]):.4f} "
               f"inner-OOF AUC={roc_auc_score(y[tr], cnn[k, tr]):.4f} ({time.time() - t0:.0f}s)", flush=True)
 
