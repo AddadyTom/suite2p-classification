@@ -128,3 +128,19 @@ Once you have changed the active feature set, run:
 .venv/bin/python train_model.py
 ```
 This script will compile all cached sessions, run a 5-fold cross-validation, display average scores, and save the updated classifier to `models/suite2p_best_lgb.pkl` along with its feature schema JSON.
+
+---
+
+## 🧪 Leak-free evaluation & image features (`feat/image-features`)
+
+```bash
+# 1. One feature table per session (trace + intensity-normalized + ops.npy image features)
+PYTHONPATH=. .venv/bin/python scripts/build_feature_tables.py --cache preprocessed_cache --out feature_tables
+# 2. Repeated GroupKFold-by-session CV with nested threshold selection, feature-group ablation and SHAP
+PYTHONPATH=. .venv/bin/python scripts/evaluate_cv.py --tables feature_tables --out results
+```
+
+* Labels: `iscell_final.npy` > `iscell_backup_before_AI.npy` > `iscell.npy`. Yael sessions are never used; `stav22` (held out) and `Stav3/21` (suspect labels) are excluded by default; exact duplicate sessions (Stav1 = Stav5) are dropped.
+* The decision threshold and `n_estimators` are chosen with an inner session-grouped CV on the training folds only; the validation fold is never used for tuning.
+* Image features (`fe_engine/image_features.py`) need `ops.npy` matching `stat.npy`; sessions failing the alignment check get NaN image features and fall back to the trace/morphology model.
+* Results: `results/REPORT.md`, `results/cv_table.md`, `results/cv_results.json`.
