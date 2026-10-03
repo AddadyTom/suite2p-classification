@@ -225,62 +225,88 @@ def get_bright_pixels_to_radius_sq(cache):
     return nbright / denom
 
 def get_peak_to_q99_ratio(cache):
-    F = cache['F']
-    Fneu = cache['Fneu']
-    n_cells = F.shape[0]
-    out = np.zeros(n_cells, dtype=np.float32)
-    for i in range(n_cells):
-        fcorr = F[i] - 0.7 * Fneu[i]
-        sorted_fcorr = np.sort(fcorr)
-        n_frames = len(sorted_fcorr)
-        max_val = sorted_fcorr[-1]
-        q99_val = sorted_fcorr[int(0.99 * (n_frames - 1))]
-        med = sorted_fcorr[n_frames // 2]
-        max_diff = max_val - med
-        q99_diff = max(q99_val - med, 1e-6)
-        out[i] = max_diff / q99_diff
-    return out
+    F_corr = _get_fcorr(cache)
+    q99 = np.percentile(F_corr, 99, axis=1)
+    max_val = np.max(F_corr, axis=1)
+    med = np.median(F_corr, axis=1)
+    q99_diff = np.maximum(q99 - med, 1e-6)
+    return (max_val - med) / q99_diff
 
 def get_peak_to_q95_ratio(cache):
-    F = cache['F']
-    Fneu = cache['Fneu']
-    n_cells = F.shape[0]
-    out = np.zeros(n_cells, dtype=np.float32)
-    for i in range(n_cells):
-        fcorr = F[i] - 0.7 * Fneu[i]
-        sorted_fcorr = np.sort(fcorr)
-        n_frames = len(sorted_fcorr)
-        max_val = sorted_fcorr[-1]
-        q95_val = sorted_fcorr[int(0.95 * (n_frames - 1))]
-        med = sorted_fcorr[n_frames // 2]
-        max_diff = max_val - med
-        q95_diff = max(q95_val - med, 1e-6)
-        out[i] = max_diff / q95_diff
-    return out
+    F_corr = _get_fcorr(cache)
+    q95 = np.percentile(F_corr, 95, axis=1)
+    max_val = np.max(F_corr, axis=1)
+    med = np.median(F_corr, axis=1)
+    q95_diff = np.maximum(q95 - med, 1e-6)
+    return (max_val - med) / q95_diff
 
 def get_range_ratio_f_fneu(cache):
-    F = cache['F']
-    Fneu = cache['Fneu']
-    n_cells = F.shape[0]
-    out = np.zeros(n_cells, dtype=np.float32)
-    for i in range(n_cells):
-        q5_f, q99_f = np.percentile(F[i], [5, 99])
-        q5_n, q99_n = np.percentile(Fneu[i], [5, 99])
-        range_f = q99_f - q5_f
-        range_neu = max(q99_n - q5_n, 1e-6)
-        out[i] = range_f / range_neu
-    return out
+    q5_f, q99_f = np.percentile(cache['F'], [5, 99], axis=1)
+    q5_n, q99_n = np.percentile(cache['Fneu'], [5, 99], axis=1)
+    range_f = q99_f - q5_f
+    range_neu = np.maximum(q99_n - q5_n, 1e-6)
+    return range_f / range_neu
 
 def get_mean_diff_f_fneu(cache):
-    F = cache['F']
-    Fneu = cache['Fneu']
-    n_cells = F.shape[0]
-    out = np.zeros(n_cells, dtype=np.float32)
     session_scale = _get_session_scale(cache)
-    for i in range(n_cells):
-        diff = np.mean(F[i]) - np.mean(Fneu[i])
-        out[i] = diff / session_scale
-    return out
+    diff = np.mean(cache['F'], axis=1) - np.mean(cache['Fneu'], axis=1)
+    return np.squeeze(diff / session_scale)
+
+# --- Intensity-normalized trace features ---
+# The raw-unit quantile/range features above scale with ROI brightness and
+# session gain. These are expressed in dF/F or in units of the trace's own
+# noise level, so they are comparable across ROIs and sessions.
+
+def _get_norm_stats(cache):
+    if '_norm_stats' not in cache:
+        F_corr = _get_fcorr(cache)
+        pcts = [1, 50, 95, 99, 99.9]
+        q = dict(zip(pcts, np.percentile(F_corr, pcts, axis=1)))
+        # dF/F baseline: median of the raw (always positive) F trace
+        f0 = np.maximum(np.median(cache['F'], axis=1), 1e-6)
+        # Robust per-frame noise: MAD of first differences; diff of iid noise
+        # has sqrt(2) times the per-frame std
+        d = np.diff(F_corr, axis=1)
+        mad = np.median(np.abs(d - np.median(d, axis=1, keepdims=True)), axis=1)
+        noise = np.maximum(1.4826 * mad / np.sqrt(2), 1e-6)
+        cache['_norm_stats'] = {
+            'q': q, 'max': np.max(F_corr, axis=1), 'f0': f0, 'noise': noise,
+            'fneu_med': np.maximum(np.median(cache['Fneu'], axis=1), 1e-6),
+        }
+    return cache['_norm_stats']
+
+def _dff(cache, val):
+    s = _get_norm_stats(cache)
+    return (val - s['q'][50]) / s['f0']
+
+def _noise_units(cache, val):
+    s = _get_norm_stats(cache)
+    return (val - s['q'][50]) / s['noise']
+
+def get_dff_q95(cache): return _dff(cache, _get_norm_stats(cache)['q'][95])
+def get_dff_q99(cache): return _dff(cache, _get_norm_stats(cache)['q'][99])
+def get_dff_q999(cache): return _dff(cache, _get_norm_stats(cache)['q'][99.9])
+def get_dff_max(cache): return _dff(cache, _get_norm_stats(cache)['max'])
+
+def get_dff_range(cache):
+    s = _get_norm_stats(cache)
+    return (s['q'][99] - s['q'][1]) / s['f0']
+
+def get_q95_over_noise(cache): return _noise_units(cache, _get_norm_stats(cache)['q'][95])
+def get_q99_over_noise(cache): return _noise_units(cache, _get_norm_stats(cache)['q'][99])
+def get_q999_over_noise(cache): return _noise_units(cache, _get_norm_stats(cache)['q'][99.9])
+
+def get_range_over_noise(cache):
+    s = _get_norm_stats(cache)
+    return (s['q'][99] - s['q'][1]) / s['noise']
+
+def get_noise_over_f0(cache):
+    s = _get_norm_stats(cache)
+    return s['noise'] / s['f0']
+
+def get_f_over_fneu_baseline(cache):
+    s = _get_norm_stats(cache)
+    return s['f0'] / s['fneu_med']
 
 # ==========================================
 # 2. FEATURE REGISTRY (strictly dictionary based)
@@ -332,7 +358,24 @@ FEATURE_REGISTRY = {
     'peak_to_q95_ratio': get_peak_to_q95_ratio,
     'range_ratio_f_fneu': get_range_ratio_f_fneu,
     'mean_diff_f_fneu': get_mean_diff_f_fneu,
+    'dff_q95': get_dff_q95,
+    'dff_q99': get_dff_q99,
+    'dff_q999': get_dff_q999,
+    'dff_max': get_dff_max,
+    'dff_range': get_dff_range,
+    'q95_over_noise': get_q95_over_noise,
+    'q99_over_noise': get_q99_over_noise,
+    'q999_over_noise': get_q999_over_noise,
+    'range_over_noise': get_range_over_noise,
+    'noise_over_f0': get_noise_over_f0,
+    'f_over_fneu_baseline': get_f_over_fneu_baseline,
 }
+
+TRACE_NORM_FEATURES = [
+    'dff_q95', 'dff_q99', 'dff_q999', 'dff_max', 'dff_range',
+    'q95_over_noise', 'q99_over_noise', 'q999_over_noise', 'range_over_noise',
+    'noise_over_f0', 'f_over_fneu_baseline',
+]
 
 # ==========================================
 # 3. ACTIVE FEATURES LIST (Modified during FE)
@@ -345,7 +388,7 @@ ACTIVE_FEATURES = [
     'q10', 'q25', 'q50', 'q75', 'q90', 'q95', 'q99',
     'radius', 'range_f', 'range_fcorr', 'skew_diff_fcorr',
     'skew_f', 'skew_fcorr', 'skew_fneu', 'solidity',
-    'std_f', 'std_fcorr'
+    'std_f', 'std_fcorr', 'mean_diff_f_fneu', 'range_ratio_f_fneu'
 ]
 
 

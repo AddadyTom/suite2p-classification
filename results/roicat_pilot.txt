@@ -1,0 +1,20 @@
+6 sessions: ['inbar1', 'Inbar10', 'Stav10', 'Stav11', 'Stav13', 'Inbar3'], 18027 ROIs
+  alignment inbar1: max |spearman(PC, npix)| = 0.64
+  alignment Inbar10: max |spearman(PC, npix)| = 0.84
+  alignment Stav10: max |spearman(PC, npix)| = 0.91
+  alignment Stav11: max |spearman(PC, npix)| = 0.71
+  alignment Stav13: max |spearman(PC, npix)| = 0.75
+  alignment Inbar3: max |spearman(PC, npix)| = 0.82
+inbar1 {'baseline (27)': 0.6489, 'baseline + ROICaT': 0.6259, 'baseline + image': 0.659, 'baseline + image + ROICaT': 0.6444, 'CONTROL: image + ROICaT, shuffled train labels': 0.0995}
+Inbar10 {'baseline (27)': 0.7573, 'baseline + ROICaT': 0.7441, 'baseline + image': 0.7898, 'baseline + image + ROICaT': 0.7751, 'CONTROL: image + ROICaT, shuffled train labels': 0.1092}
+Stav10 {'baseline (27)': 0.864, 'baseline + ROICaT': 0.8552, 'baseline + image': 0.8855, 'baseline + image + ROICaT': 0.8826, 'CONTROL: image + ROICaT, shuffled train labels': 0.2478}
+Stav11 {'baseline (27)': 0.8546, 'baseline + ROICaT': 0.8349, 'baseline + image': 0.8466, 'baseline + image + ROICaT': 0.8485, 'CONTROL: image + ROICaT, shuffled train labels': 0.3045}
+Stav13 {'baseline (27)': 0.7957, 'baseline + ROICaT': 0.8206, 'baseline + image': 0.8587, 'baseline + image + ROICaT': 0.8619, 'CONTROL: image + ROICaT, shuffled train labels': 0.4329}
+Inbar3 {'baseline (27)': 0.6236, 'baseline + ROICaT': 0.6424, 'baseline + image': 0.6933, 'baseline + image + ROICaT': 0.7274, 'CONTROL: image + ROICaT, shuffled train labels': 0.4184}
+| Feature set | Precision | Recall | F1 (mean ± std over held-out sessions) |
+|---|---|---|---|
+| baseline (27) | 0.7659 | 0.8174 | 0.7573 ± 0.0931 (Δ +0.0000, 0/6 up) |
+| baseline + ROICaT | 0.7511 | 0.8292 | 0.7539 ± 0.0914 (Δ -0.0035, 2/6 up) |
+| baseline + image | 0.7759 | 0.8562 | 0.7888 ± 0.0852 (Δ +0.0315, 5/6 up) |
+| baseline + image + ROICaT | 0.7644 | 0.8697 | 0.7900 ± 0.0841 (Δ +0.0326, 4/6 up) |
+| CONTROL: image + ROICaT, shuffled train labels | 0.1620 | 1.0000 | 0.2687 ± 0.1324 (Δ -0.4886, 0/6 up) |
