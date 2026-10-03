@@ -65,3 +65,19 @@ Labels: `iscell_final.npy` > `iscell_backup_before_AI.npy` > `iscell.npy`.
 ## Data issues found
 * `Stav1` is a copy of `Stav5`, and its `ops.npy` belongs to another recording. The image features include a label-free ops/stat alignment check that catches this (score 0.05 vs ≥ 0.27 for matching sessions). In deployment, sessions that fail it fall back to the trace/morphology model.
 * The old train_model.py never read `iscell_final.npy` (final-only sessions were skipped). For sessions without a backup, it used an `iscell.npy` that apply_AI.py had overwritten (Inbar6, inbar4: about 8–9% of ROIs differ from final). Both are fixed on this branch.
+
+## CNN on aligned ROI crops (stacked into LightGBM)
+4-channel 32×32 crops (meanImg, max_proj and Vcorr at the correct yrange/xrange offset, plus the lam mask), with a small 3-block CNN, flip/rotation augmentation and a fixed 6 epochs. There is no early stopping or selection on held-out labels. Out-of-fold scores come from the repeat-0 session folds of the CV above. Training rows get inner-OOF scores and validation rows get scores from a CNN trained on the outer-training sessions, so a stacked model never sees a CNN score fit on its own label. CPU only, about 20 min per outer fold.
+
+| Model (5 folds, repeat 0) | Precision | Recall | F1 | AUC | ΔF1 vs + image (all) |
+|---|---|---|---|---|---|
+| CNN alone | 0.847 | 0.855 | 0.850 ± 0.023 | | |
+| baseline (27) | 0.817 | 0.840 | 0.828 ± 0.029 | 0.975 | −0.025 (0/5 up) |
+| baseline + CNN | 0.852 | 0.859 | 0.854 ± 0.021 | 0.982 | +0.002 (2/5 up) |
+| + image (all) | 0.846 | 0.860 | 0.853 ± 0.026 | 0.982 | |
+| **+ image (all) + CNN** | 0.849 | 0.870 | **0.859 ± 0.021** | 0.983 | +0.006 (4/5 up) |
+
+The CNN alone (0.850) is about as good as the hand-crafted image features (0.853). The two are largely redundant: stacking adds +0.006 F1 (4/5 folds), a small and not yet robust gain for the extra inference cost. Scripts: `scripts/prepare_cnn_crops.py`, `train_cnn_oof.py`, `cnn_stack_cv.py`; per-fold numbers are in `cnn_stack.txt`.
+
+## ROICaT ROInet embeddings (pilot, stopped)
+Pretrained ROInet latents (128-d, PCA to 16 fitted on the training sessions only), with leave-one-session-out CV on 6 sessions (inbar1, Inbar10, Stav10, Stav11, Stav13, Inbar3; 18,027 ROIs). Mean F1: baseline 0.757, + ROICaT 0.754 (2/6 up), + image 0.789, + image + ROICaT 0.790 (3/6 up vs + image). There is no gain, so the remaining sessions were not embedded. Checks: the shuffled-label control falls to the predict-all-positive level (F1 0.27, recall 1.0), and embedding rows track ROI size in every session (|ρ| 0.64–0.91). um/pixel was assumed to be 1.5. Details are in `roicat_pilot.txt`.
