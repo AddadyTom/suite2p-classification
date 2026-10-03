@@ -144,3 +144,10 @@ PYTHONPATH=. .venv/bin/python scripts/evaluate_cv.py --tables feature_tables --o
 * The decision threshold and `n_estimators` are chosen with an inner session-grouped CV on the training folds only; the validation fold is never used for tuning.
 * Image features (`fe_engine/image_features.py`) need `ops.npy` matching `stat.npy`; sessions failing the alignment check get NaN image features and fall back to the trace/morphology model.
 * Results: `results/REPORT.md`, `results/cv_table.md`, `results/cv_results.json`.
+
+### Image-feature model (`image` preset)
+```bash
+python apply_AI.py /path/to/suite2p/plane0 image     # baseline + ops.npy image features
+python apply_AI.py /path/to/suite2p/plane0           # regular (default) model, unchanged
+```
+`models/image/suite2p_image_lgb.pkl` (+ `.json` with features, threshold 0.65 and CV results) is trained by `scripts/train_image_model.py` on the 29 clean sessions. Leak-free CV F1 is 0.853 vs 0.827 for the 27-feature baseline. Features are computed with the training code (`fe_engine/session_features.py`), so no preprocessed_cache entry is needed. When `ops.npy` is missing or doesn't match `stat.npy`, it falls back to the regular model.
