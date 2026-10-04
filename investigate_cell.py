@@ -940,6 +940,16 @@ def _extract_features_vectorized_chunk(F, Fneu, spks, stat, feature_names, custo
 # 3. INTERACTIVE SERVER BACKEND
 # ==========================================
 
+def _model_option_value(model_path):
+    """The model dropdown lists paths relative to the repo; report the active model the same way."""
+    if not model_path:
+        return None
+    try:
+        return str(Path(model_path).resolve().relative_to(BASE_DIR))
+    except ValueError:
+        return str(model_path)
+
+
 def _json_safe(obj):
     """Replace NaN/Inf (invalid in JSON, they break the browser's parser) with None."""
     if isinstance(obj, float):
@@ -1697,7 +1707,7 @@ class DashHandler(BaseHTTPRequestHandler):
                     'scalers': scalers,
                     'model_details': model_details,
                     'suggested_sessions': existing_sessions,
-                    'active_model': str(state.model_path) if state.model_path else None,
+                    'active_model': _model_option_value(state.model_path),
                     'active_scaler': str(state.scaler_path) if state.scaler_path else None,
                     'active_session': str(state.session_path) if state.session_path else None,
                     'num_features': state.num_features,
