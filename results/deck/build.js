@@ -118,7 +118,7 @@ pres.addSection({ title: "Overview" });
   });
   const take = [
     ["The gain comes from images, not traces or model choice", "Hand-made trace features beat every learned trace embedding; LightGBM, XGBoost and CatBoost tie within ±0.003"],
-    ["The hardest sessions are a labelling-style problem", "Inbar3, inbar1 and Stav14 rank well (0.82–0.88 F1 at their own best threshold) but were labelled more or less strictly"],
+    ["Who labelled the data matters", "Stav-trained models score best on Stav sessions in 4 of 4 tests; on the hardest Inbar sessions an Inbar-trained model wins by 0.04"],
   ];
   take.forEach(([h, b], i) => {
     const y = 4.55 + i * 1.1;
@@ -364,10 +364,96 @@ pres.addSection({ title: "Neural networks and alternatives" });
 // =====================================================================
 pres.addSection({ title: "Labels" });
 
+// L1. The labeller matters
+{
+  const s = pres.addSlide({ masterName: "Content", sectionTitle: "Labels" });
+  s.addText("The labeller matters: own-lab training fits best", { placeholder: "title" });
+  const labels = ["Stav: 4 hardest", "Stav: random draw 1", "Stav: random draw 2", "Stav: random draw 3",
+    "Inbar: 4 hardest", "Inbar: random draw 1", "Inbar: random draw 2", "Inbar: random draw 3"];
+  const vals = [0.025, 0.014, 0.031, 0.022, 0.041, -0.011, 0.001, -0.009];
+  s.addChart(pres.charts.BAR, [{ name: "Own-lab advantage", labels, values: vals }], Object.assign(chartBase(), {
+    objectName: "own-lab advantage chart", x: M, y: 1.35, w: 7.6, h: 5.45, barDir: "bar",
+    chartColors: [H.accent1], invertedColors: [H.accent5],
+    valAxisMinVal: -0.02, valAxisMaxVal: 0.05, valAxisMajorUnit: 0.01, valAxisLabelFormatCode: "+0.00;-0.00;0",
+    showValue: true, dataLabelPosition: "outEnd", dataLabelFormatCode: "+0.000;-0.000;0.000", showLegend: false,
+    catAxisOrientation: "maxMin", catAxisLabelPos: "low", barGapWidthPct: 40,
+    showTitle: true, title: "F1 trained on own lab minus F1 trained on the other lab", titleFontSize: 13, titleColor: H.accent4,
+  }));
+  const x2 = M + 8.0, w2 = W - M - x2;
+  card(s, "labeller commentary card", x2, 1.35, w2, 5.45);
+  s.addText([
+    para("What we found", { bold: true, fontSize: 18, color: C.text2, paraSpaceAfter: 8 }),
+    para("Stav's sessions: a Stav-trained model wins in 4 of 4 tests (+0.014 to +0.031)", { bullet: true, fontSize: 15, paraSpaceAfter: 6 }),
+    para("Inbar's sessions: an Inbar-trained model wins clearly on the hardest ones (+0.041)", { bullet: true, fontSize: 15, paraSpaceAfter: 6 }),
+    { text: "On typical Inbar sessions it only ties, with half the training data (8 sessions vs 17)", options: { bullet: true, fontSize: 15 } },
+  ], { objectName: "labeller commentary text", x: x2 + 0.3, y: 1.55, w: w2 - 0.6, h: 5.05, valign: "top", margin: 0, color: C.text1, isTextBox: true });
+  s.addNotes("Each bar is one hold-out experiment: 4 sessions of one lab are held out, and two models are trained, one on the " +
+    "remaining sessions of that lab and one on the other lab only. Same 44 features, same LightGBM settings; the threshold is " +
+    "chosen by cross-validation on the training sessions only. Positive = the model trained on the same lab's labels did better.");
+}
+
+// L2. How we tested it
+{
+  const s = pres.addSlide({ masterName: "Content", sectionTitle: "Labels" });
+  s.addText("How we tested it: train on one lab, test on another", { placeholder: "title" });
+  const exps = [
+    ["Hardest sessions, both labs", "Hold out the 4 lowest-scoring sessions of one lab. Train on: that lab only, the other lab only, both, and both with labs weighted equally."],
+    ["Random sessions, both labs", "Repeat with 3 random draws of 4 held-out sessions per lab, so the result can't come from picking hard sessions."],
+    ["Threshold and label rate", "For each held-out session, compare F1 at the trained threshold with F1 at that session's own best threshold, and predicted vs labelled cell rate."],
+  ];
+  const cw = (W - 2 * M - 2 * 0.3) / 3;
+  exps.forEach(([h, b], i) => {
+    const x = M + i * (cw + 0.3);
+    card(s, `experiment ${i + 1} card`, x, 1.45, cw, 3.3);
+    numberDot(s, `experiment ${i + 1}`, i + 1, x + 0.3, 1.7, 0.55, C.accent2);
+    s.addText([para(h, { bold: true, fontSize: 17, color: C.text2, paraSpaceAfter: 6 }), { text: b, options: { fontSize: 15, color: C.text1 } }],
+      { objectName: `experiment ${i + 1} text`, x: x + 0.3, y: 2.45, w: cw - 0.6, h: 2.2, valign: "top", margin: 0, isTextBox: true });
+  });
+  card(s, "rules card", M, 5.05, W - 2 * M, 1.65, C.background2);
+  s.addText([
+    para("Kept fixed in every experiment", { bold: true, fontSize: 16, color: C.text2, paraSpaceAfter: 4 }),
+    para("Same 44 features and LightGBM settings as the shipped model", { bullet: true, fontSize: 15 }),
+    { text: "Threshold and number of trees chosen on the training sessions only; test sessions are never seen in training", options: { bullet: true, fontSize: 15 } },
+  ], { objectName: "rules text", x: M + 0.3, y: 5.2, w: W - 2 * M - 0.6, h: 1.4, valign: "top", margin: 0, color: C.text1, isTextBox: true });
+  s.addNotes("Stav pool: 17 sessions (13 when 4 are held out). Inbar pool: 12 sessions (8 when 4 are held out). Scripts: " +
+    "scripts/holdout_eval.py; results in results/labeller_experiments.md.");
+}
+
+// L3. Full results
+{
+  const s = pres.addSlide({ masterName: "Content", sectionTitle: "Labels" });
+  s.addText("All eight experiments, F1 on the held-out sessions", { placeholder: "title" });
+  const hdr = (t) => ({ text: t, options: { bold: true, color: C.background1, fill: { color: C.text2 } } });
+  const b = (t) => ({ text: t, options: { bold: true } });
+  const rows = [
+    [hdr("Held-out sessions"), hdr("Trained on Stav"), hdr("Trained on Inbar"), hdr("Own-lab advantage")],
+    ["Stav14, Stav8, Stav18, Stav17 (hardest)", b("0.833"), "0.808", "+0.025"],
+    ["Stav4, Stav16, Stav14, Stav6", b("0.848"), "0.834", "+0.014"],
+    ["Stav9, Stav13, Stav20, Stav19", b("0.886"), "0.855", "+0.031"],
+    ["Stav6, Stav18, Stav16, Stav14", b("0.831"), "0.809", "+0.022"],
+    ["Inbar3, Inbar12, inbar1, Inbar9 (hardest)", "0.741", b("0.782"), "+0.041"],
+    ["Inbar9, inbar4, Inbar8, Inbar11", b("0.838"), "0.827", "−0.011"],
+    ["Inbar10, Inbar2, Inbar6, Inbar8", "0.847", b("0.848"), "+0.001"],
+    ["Inbar12, Inbar2, Inbar11, inbar4", b("0.826"), "0.817", "−0.009"],
+  ];
+  const tw = W - 2 * M;
+  s.addTable(rows, { objectName: "labeller results table", x: M, y: 1.4, w: tw, colW: [tw * 0.43, tw * 0.19, tw * 0.19, tw * 0.19],
+    fontSize: 14, color: C.text1, border: { type: "solid", pt: 0.5, color: "DDE5E4" }, fill: { color: C.background1 }, rowH: 0.42 });
+  s.addText([
+    { text: "Mixing both labs lands in between: ", options: { bold: true, color: C.text2 } },
+    { text: "0.821–0.832 on the hard Stav set and 0.767 on the hard Inbar set, where weighting the labs equally helps on Stav but not on Inbar.", options: { color: C.text1 } },
+  ], { objectName: "mixing caption", x: M, y: 5.45, w: tw, h: 0.6, fontSize: 15, margin: 0, valign: "top", isTextBox: true });
+  s.addText("Caveat: lab and labeller are the same variable here (different mice, rigs and days too). The clean test is both people labelling the same sessions.",
+    { objectName: "confound caveat", x: M, y: 6.15, w: tw, h: 0.65, fontSize: 14, italic: true, color: C.accent4, margin: 0, valign: "top", isTextBox: true });
+  s.addNotes("Bold = the better of the two training pools for that held-out set. Own-lab advantage = F1(trained on the same lab) " +
+    "minus F1(trained on the other lab).");
+}
+
+
 // 11. Labelling style
 {
   const s = pres.addSlide({ masterName: "Content", sectionTitle: "Labels" });
-  s.addText("Hardest sessions: mostly labelling strictness", { placeholder: "title" });
+  s.addText("Within a lab, label strictness varies by session", { placeholder: "title" });
   const sess = ["Inbar3", "inbar1", "Stav14", "Inbar12", "Inbar9"];
   s.addChart(pres.charts.BAR, [
     { name: "F1 at the trained threshold", labels: sess, values: [0.748, 0.771, 0.774, 0.806, 0.799] },
@@ -438,15 +524,16 @@ pres.addSection({ title: "Next steps" });
   const recs = [
     ["Ship the image preset", "+0.026 F1, cheap, explainable with SHAP"],
     ["Review labels in Inbar3, inbar1, Stav14", "Many 'errors' may be labelling calls; fixing them helps scoring and training"],
-    ["Use a per-lab or per-session threshold", "Worth about +0.015–0.04 F1 on Inbar sessions; the dashboard slider already allows it"],
+    ["Use a per-lab threshold, and train on each lab's own labels when there is enough", "Own-lab training wins by up to +0.04 F1; the dashboard slider already allows a different threshold"],
+    ["Measure labeller agreement directly", "Have Stav and Inbar label the same 2–3 sessions; this separates labelling style from recording differences"],
     ["Add the CNN only if 0.007 matters", "Best model is 0.861, but needs a CNN at inference"],
     ["Fix the regular model's feature mismatch", "Its cached quantile features are scaled differently at training and inference"],
   ];
   recs.forEach(([h, b], i) => {
-    const y = 1.55 + i * 1.05;
-    numberDot(s, `recommendation ${i + 1}`, i + 1, M, y + 0.05, 0.55, C.accent1);
-    s.addText([para(h, { bold: true, fontSize: 19, color: C.background1 }), { text: b, options: { fontSize: 15, color: C.accent6 } }],
-      { objectName: `recommendation ${i + 1} text`, x: M + 0.85, y, w: W - 2 * M - 0.85, h: 0.95, valign: "top", margin: 0, isTextBox: true });
+    const y = 1.5 + i * 0.88;
+    numberDot(s, `recommendation ${i + 1}`, i + 1, M, y + 0.05, 0.5, C.accent1);
+    s.addText([para(h, { bold: true, fontSize: 18, color: C.background1 }), { text: b, options: { fontSize: 14, color: C.accent6 } }],
+      { objectName: `recommendation ${i + 1} text`, x: M + 0.8, y, w: W - 2 * M - 0.8, h: 0.8, valign: "top", margin: 0, isTextBox: true });
   });
   s.addNotes("Code, results and this deck are on the branch feat/image-features in AddadyTom/suite2p-classification " +
     "(results/REPORT.md and results/*.md for the full tables).");
