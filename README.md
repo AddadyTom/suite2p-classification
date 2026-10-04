@@ -150,4 +150,10 @@ PYTHONPATH=. .venv/bin/python scripts/evaluate_cv.py --tables feature_tables --o
 python apply_AI.py /path/to/suite2p/plane0 image     # baseline + ops.npy image features
 python apply_AI.py /path/to/suite2p/plane0           # regular (default) model, unchanged
 ```
+In the dashboard, pick **"[44 Features] LightGBM + image features"** in the model list, or start it directly:
+```bash
+PYTHONPATH=. .venv/bin/python investigate_cell.py --port 5000 --session /path/to/suite2p/plane0 --model models/image/suite2p_image_lgb.pkl
+```
+The threshold slider starts at the model's tuned threshold (0.65), and every image feature has an explanation in the attribution table. Note: **Apply Settings** writes the model's predictions to `iscell.npy` in the session folder (backing up the original to `iscell_backup_before_AI.npy` first), like `apply_AI.py`. The session needs an `ops.npy` that belongs to its `stat.npy`; otherwise the dashboard says so, and you should use a regular model for that session.
+
 `models/image/suite2p_image_lgb.pkl` (+ `.json` with features, threshold 0.65 and CV results) is trained by `scripts/train_image_model.py` on the 29 clean sessions. Leak-free CV F1 is 0.853 vs 0.827 for the 27-feature baseline. Features are computed with the training code (`fe_engine/session_features.py`), so no preprocessed_cache entry is needed. When `ops.npy` is missing or doesn't match `stat.npy`, it falls back to the regular model.

@@ -489,6 +489,11 @@ def run_ai_pipeline(session_path, model_spec=None, scaler_spec=None, save_iscell
 
     if model_spec is not None and str(model_spec).lower() == 'image':
         return run_image_pipeline(session_path, save_iscell=save_iscell)
+    # A model whose JSON says its features come from fe_engine.session_features (e.g. the
+    # image model picked by path in investigate_cell.py) must use that exact feature code
+    if model_spec is not None and _uses_session_features(Path(model_spec)):
+        return run_image_pipeline(session_path, save_iscell=save_iscell,
+                                  model_path=Path(model_spec), fallback=False)
     
     F = np.load(session_path / 'F.npy', mmap_mode='r')
     Fneu = np.load(session_path / 'Fneu.npy', mmap_mode='r')
@@ -695,26 +700,42 @@ def _finalize_predictions(session_path, stat, F, probs, threshold, save_iscell, 
     return is_cell, probs, num_suppressed
 
 IMAGE_MODEL_PATH = Path(__file__).parent.resolve() / 'models' / 'image' / 'suite2p_image_lgb.pkl'
+SESSION_FEATURES_CODE = 'fe_engine.session_features.compute_session_features'
 
-def run_image_pipeline(session_path, save_iscell=True):
+def _uses_session_features(model_path):
+    meta_path = Path(model_path).with_suffix('.json')
+    if not meta_path.exists():
+        return False
+    try:
+        with open(meta_path, 'r') as f:
+            return json.load(f).get('feature_code') == SESSION_FEATURES_CODE
+    except Exception:
+        return False
+
+def run_image_pipeline(session_path, save_iscell=True, model_path=IMAGE_MODEL_PATH, fallback=True):
     """
     'image' preset: baseline features + ops.npy image features, computed with the
     exact training feature code (fe_engine.session_features). Threshold comes from
-    the model JSON. Falls back to the regular preset when ops.npy is missing or
-    does not belong to this stat.npy.
+    the model JSON. When ops.npy is missing or does not belong to this stat.npy,
+    falls back to the regular preset (fallback=True, CLI) or raises (fallback=False,
+    e.g. the dashboard, which needs the model's own feature layout).
     """
     from fe_engine.session_features import compute_session_features
     session_path = Path(session_path)
-    with open(IMAGE_MODEL_PATH.with_suffix('.json'), 'r') as f:
+    model_path = Path(model_path)
+    with open(model_path.with_suffix('.json'), 'r') as f:
         meta = json.load(f)
     feature_names = meta['active_features']
 
     X, image_ok = compute_session_features(session_path, feature_names)
     if not image_ok:
+        if not fallback:
+            raise ValueError(f"{session_path}: ops.npy is missing or does not match stat.npy, so the image "
+                             f"model cannot be used for this session. Use the regular model instead.")
         print("ops.npy is missing or does not match stat.npy: falling back to the regular model.")
         return run_ai_pipeline(session_path, model_spec='regular', save_iscell=save_iscell)
 
-    model = joblib.load(IMAGE_MODEL_PATH)
+    model = joblib.load(model_path)
     probs = model.predict_proba(X)[:, 1]
     threshold = float(meta['threshold'])
 
@@ -728,7 +749,7 @@ def run_image_pipeline(session_path, save_iscell=True):
         'probs': probs,
         'threshold': threshold,
         'num_suppressed': num_suppressed,
-        'model_path': IMAGE_MODEL_PATH,
+        'model_path': model_path,
         'feature_names': feature_names,
         'X_extracted': X
     }

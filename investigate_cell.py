@@ -7,7 +7,7 @@ import shutil
 import numpy as np
 import urllib.parse
 from pathlib import Path
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from scipy.stats import skew
 from scipy.signal import find_peaks, peak_widths
 import webbrowser
@@ -63,6 +63,34 @@ MASTER_FEATURE_DESCS = {
     'activity_ratio': 'Ratio of variance above the median to variance below. Highlights positive-going calcium transients.',
     'peak_density': 'Density of 2-standard-deviation peaks per frame. Measures active firing frequency.'
 }
+
+# Features of the image model (models/image), computed by fe_engine/image_features.py and
+# fe_engine/fe_definitions.py (intensity-normalized trace features)
+for _img in ('meanImg', 'meanImgE', 'max_proj', 'Vcorr'):
+    MASTER_FEATURE_DESCS[f'{_img}_contrast_z'] = (f'Mask vs surrounding 2-7 px ring in {_img}: (lam-weighted mean inside '
+                                                  f'- ring mean) / ring std. Real somata stand out from their surroundings.')
+    MASTER_FEATURE_DESCS[f'{_img}_lam_corr'] = (f'Correlation between the mask weights (lam) and {_img} pixels inside the mask. '
+                                                f'High when the bright part of the mask sits on a bright blob.')
+    MASTER_FEATURE_DESCS[f'{_img}_lam_corr_patch'] = (f'Correlation between the mask weights (0 in the ring) and {_img} over mask + ring: '
+                                                      f'shape and contrast match together.')
+MASTER_FEATURE_DESCS.update({
+    'meanImg_ratio': 'Mean image brightness inside the mask divided by the surrounding ring.',
+    'max_proj_ratio': 'Max-projection brightness inside the mask divided by the surrounding ring: did the ROI light up more than its surroundings?',
+    'Vcorr_in_mean': 'Mean local-correlation (Vcorr) value inside the mask. High when the pixels fluctuate together, as in an active cell.',
+    'Vcorr_in_minus_ring': 'Vcorr inside the mask minus Vcorr in the surrounding ring.',
+    'meanImg_neuropil_contrast': "Mean image inside the mask vs Suite2p's own neuropil mask (which excludes other ROIs), in units of neuropil std.",
+    'dff_q95': 'dF/F at the 95th percentile (F_corr - median) / median(F).',
+    'dff_q99': 'dF/F at the 99th percentile.',
+    'dff_q999': 'dF/F at the 99.9th percentile: size of the largest transients.',
+    'dff_max': 'Maximum dF/F.',
+    'dff_range': 'dF/F range between the 1st and 99th percentiles.',
+    'q95_over_noise': '95th percentile of F_corr above its median, in units of the trace noise (MAD of first differences).',
+    'q99_over_noise': '99th percentile of F_corr above its median, in noise units.',
+    'q999_over_noise': '99.9th percentile of F_corr above its median, in noise units: transient SNR.',
+    'range_over_noise': 'F_corr range (1st-99th percentile) in noise units.',
+    'noise_over_f0': 'Trace noise relative to baseline F (noise / median F).',
+    'f_over_fneu_baseline': 'Baseline ratio median(F) / median(Fneu): how much brighter the ROI is than its neuropil.',
+})
 
 # Legacy Feature Lists
 FEATURE_NAMES_24_legacy = [
@@ -912,6 +940,17 @@ def _extract_features_vectorized_chunk(F, Fneu, spks, stat, feature_names, custo
 # 3. INTERACTIVE SERVER BACKEND
 # ==========================================
 
+def _json_safe(obj):
+    """Replace NaN/Inf (invalid in JSON, they break the browser's parser) with None."""
+    if isinstance(obj, float):
+        return obj if np.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    return obj
+
+
 class SessionState:
     def __init__(self):
         self.session_path = None
@@ -998,7 +1037,8 @@ class SessionState:
             'description': meta.get('description') or 'Custom trained model.',
             'active_features': active_feats,
             'feature_count': len(active_feats),
-            'custom_features': meta.get('custom_features', {})
+            'custom_features': meta.get('custom_features', {}),
+            'threshold': meta.get('threshold')  # tuned decision threshold, if the model stores one
         }
 
     def load_model(self, model_name, scaler_name=None):
@@ -1264,13 +1304,14 @@ class SessionState:
                         save_iscell=False,
                         custom_features=self.custom_features
                     )
-                    self.X_extracted = results["X_extracted"]
-                    self.y_probs = results["probs"]
-                    self.y_preds = results["is_cell"]
+                    self._store_pipeline_results(results)
                 except Exception as e:
                     print(f"Error extracting features: {e}")
                     import traceback; traceback.print_exc()
                     self.X_extracted = None
+                    # Surface the real reason (e.g. ops.npy not matching stat.npy) instead of a
+                    # follow-on error from predicting on missing features
+                    raise RuntimeError(f"Could not compute this model's features for the session: {e}") from e
                 # 3. Predict using model (if not already predicted by run_ai_pipeline)
                 if getattr(self, 'y_probs', None) is None:
                     X_proc = self.X_extracted
@@ -1286,6 +1327,21 @@ class SessionState:
                 self.ref_noncells_means = np.mean(self.X_extracted[self.y_true == 0], axis=0) if has_gt and np.sum(self.y_true == 0) > 0 else self.ref_means
                 print("Calculated reference averages from session.")
 
+    def _store_pipeline_results(self, results):
+        self.X_extracted = results["X_extracted"]
+        self.y_probs = results["probs"]
+        self.y_preds = results["is_cell"]
+        # Image features can be NaN for a few ROIs (e.g. a saturated, constant patch).
+        # Probabilities above were computed with the NaNs (LightGBM handles them); the
+        # copy kept for explanations, statistics and JSON uses the session median instead.
+        if self.X_extracted is not None and np.isnan(self.X_extracted).any():
+            X = np.array(self.X_extracted, dtype=np.float64)
+            med = np.nan_to_num(np.nanmedian(X, axis=0))
+            nan_mask = np.isnan(X)
+            X[nan_mask] = np.take(med, np.where(nan_mask)[1])
+            print(f"Filled {int(nan_mask.sum())} NaN feature values with session medians for display.")
+            self.X_extracted = X
+
     def save_iscell_to_data_dir(self):
         if self.session_path is None or self.model_path is None:
             return False
@@ -1297,9 +1353,7 @@ class SessionState:
                 scaler_spec=self.scaler_path,
                 save_iscell=True
             )
-            self.X_extracted = results['X_extracted']
-            self.y_probs = results['probs']
-            self.y_preds = results['is_cell']
+            self._store_pipeline_results(results)
             print(f"Saved AI model predictions ({int(np.sum(self.y_preds))} cells) to iscell.npy in {self.session_path.name}")
             return True
         except Exception as e:
@@ -2474,7 +2528,7 @@ class DashHandler(BaseHTTPRequestHandler):
         self.send_header('Content-type', 'application/json')
         self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
-        self.wfile.write(json.dumps(data).encode('utf-8'))
+        self.wfile.write(json.dumps(_json_safe(data)).encode('utf-8'))
         
     def send_error_json(self, message):
         self.send_response(500)
@@ -3144,7 +3198,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             
             document.getElementById('btn-uncertain').innerHTML = `<i class="fa-solid fa-question-circle"></i> Uncertain 15-85% (<span id="count-unc">${uncertain.length}</span>)`;
             
-            document.getElementById('pred-cells-display').textContent = fp_count; // fp contains all pred===1 cells when g===0
+            document.getElementById('pred-cells-display').textContent = tp_count + fp_count;
             document.getElementById('count-tp').textContent = tp_count;
             document.getElementById('count-fp').textContent = fp_count;
             document.getElementById('count-fn').textContent = fn_count;
@@ -3189,6 +3243,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
         function renderModelCard(modelInfo) {
             if (!modelInfo) return;
+            // Models that store their tuned threshold (e.g. the image model) start the slider there
+            if (typeof modelInfo.threshold === 'number') {
+                let t = Math.round(modelInfo.threshold * 100) / 100;
+                document.getElementById('threshold-slider').value = t;
+                document.getElementById('threshold-value').textContent = t.toFixed(2);
+                activeThreshold = t;
+                if (sessionInfo && sessionInfo.loaded) updateThreshold(t);
+            }
             let titleEl = document.getElementById('model-card-title');
             let descEl = document.getElementById('model-card-desc');
             let countEl = document.getElementById('model-card-count');
@@ -4092,7 +4154,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         }
 
         function formatNumber(val) {
-            if (val === undefined || isNaN(val)) return '-';
+            if (val === undefined || val === null || isNaN(val)) return '-';
             if (Math.abs(val) < 0.001 && val !== 0) return val.toExponential(2);
             if (val % 1 !== 0) return val.toFixed(3);
             return val.toLocaleString();
@@ -4654,7 +4716,10 @@ def run_server(port=5000):
     #             except Exception as e:
     #                 print(f"Error loading initial session {s}: {e}")
                 
-    server = HTTPServer(('localhost', port), DashHandler)
+    # Threaded: browsers (Chrome) open idle pre-connections that would block a single-threaded
+    # server; heavy session/model work is still serialized by state.lock
+    server = ThreadingHTTPServer(('localhost', port), DashHandler)
+    server.daemon_threads = True
     print(f"\n==================================================================")
     print(f"  Suite2p AI Decision Explainer Server is running!")
     print(f"  --> Local Address: http://localhost:{port}")
