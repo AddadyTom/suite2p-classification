@@ -115,5 +115,8 @@
                 "std": 0.0250665474400423
             }
         }
-    }
+    },
+    "trained": "2026-10-03",
+    "training_data": "29 sessions: Stav 4-21 (no Stav15) and Inbar 1-12",
+    "idea": "New features: baseline 27 + 17 image features from the Suite2p summary images in ops.npy (meanImg, meanImgE, max projection, Vcorr): how much each ROI stands out from a surrounding ring and how well its mask matches the image. Leak-free CV F1 0.853 vs 0.827 baseline. Decision threshold 0.65."
 }

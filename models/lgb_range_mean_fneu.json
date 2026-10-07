@@ -31,5 +31,8 @@
         "range_ratio_f_fneu",
         "mean_diff_f_fneu"
     ],
-    "custom_features": {}
+    "custom_features": {},
+    "trained": "2026-09-29",
+    "training_data": "All labelled sessions in the preprocessed cache at the time (Stav + Inbar), excluding Yael, Stav3/21 and Stav22 (held out)",
+    "idea": "New features: production set plus 2 neuropil features (F/Fneu range ratio, normalized mean F minus Fneu), 28 total."
 }

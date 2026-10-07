@@ -1024,7 +1024,10 @@ class SessionState:
                 'description': desc,
                 'active_features': active_feats,
                 'feature_count': len(active_feats),
-                'custom_features': meta.get('custom_features', {})
+                'custom_features': meta.get('custom_features', {}),
+                'trained': meta.get('trained'),
+                'training_data': meta.get('training_data'),
+                'idea': meta.get('idea')
             })
             
         return sorted(models), sorted(scalers), model_details
@@ -1048,7 +1051,10 @@ class SessionState:
             'active_features': active_feats,
             'feature_count': len(active_feats),
             'custom_features': meta.get('custom_features', {}),
-            'threshold': meta.get('threshold')  # tuned decision threshold, if the model stores one
+            'threshold': meta.get('threshold'),  # tuned decision threshold, if the model stores one
+            'trained': meta.get('trained'),
+            'training_data': meta.get('training_data'),
+            'idea': meta.get('idea')
         }
 
     def load_model(self, model_name, scaler_name=None):
@@ -3290,11 +3296,21 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             }
         }
 
+        // Hover text for a model: when it was trained, on what data, and the idea behind it
+        function modelTooltip(m) {
+            let lines = [m.name || m.filename || ''];
+            if (m.trained) lines.push(`Trained: ${m.trained}`);
+            if (m.training_data) lines.push(`Data: ${m.training_data}`);
+            lines.push(`Idea: ${m.idea || m.description || 'No description recorded.'}`);
+            return lines.join('\\n');
+        }
+
         function onModelSelectChange() {
             let modelSelect = document.getElementById('model-select');
             if (!modelSelect) return;
             let val = modelSelect.value;
             let found = (window.allModelDetails || []).find(m => m.path === val || m.filename === val);
+            modelSelect.title = found ? modelTooltip(found) : '';
             if (found) {
                 renderModelCard(found);
             }
@@ -3315,6 +3331,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                             let opt = document.createElement('option');
                             opt.value = m.path;
                             opt.textContent = `[${m.feature_count} Features] ${m.name} (${m.filename})`;
+                            opt.title = modelTooltip(m);
                             modelSelect.appendChild(opt);
                         });
                     } else if (data.models) {
@@ -3328,6 +3345,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     if (data.active_model) {
                         modelSelect.value = data.active_model;
                     }
+                    let sel = modelSelect.options[modelSelect.selectedIndex];
+                    modelSelect.title = sel ? sel.title : '';
                 }
                 
                 let scalerDatalist = document.getElementById('scaler-options');

@@ -28,5 +28,8 @@
         "std_f",
         "std_fcorr"
     ],
-    "custom_features": {}
+    "custom_features": {},
+    "trained": "2026-09-30",
+    "training_data": "All Inbar sessions except Inbar 7 and 8",
+    "idea": "Different data: Inbar-only model with sessions 7 and 8 held out, to evaluate on unseen Inbar sessions."
 }
