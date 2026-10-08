@@ -1739,39 +1739,42 @@ class DashHandler(BaseHTTPRequestHandler):
             def progress(percent, status):
                 state.apply_progress.update(percent=percent, status=status)
 
-            state.apply_progress = {'percent': 0, 'status': 'Waiting for the current job to finish...',
-                                    'active': True, 'started': time.time()}
             try:
                 with state.lock:
-                    session_path = params.get('session_path', [None])[0]
-                    model_name = params.get('model_name', [None])[0]
-                    scaler_name = params.get('scaler_name', [None])[0]
+                    # Reset only once this request holds the lock, so a request still waiting
+                    # does not take over (and later mark as done) the progress of the running one
+                    state.apply_progress = {'percent': 0, 'status': 'Starting...',
+                                            'active': True, 'started': time.time()}
+                    try:
+                        session_path = params.get('session_path', [None])[0]
+                        model_name = params.get('model_name', [None])[0]
+                        scaler_name = params.get('scaler_name', [None])[0]
                     
-                    if model_name:
-                        progress(5, 'Loading model...')
-                        state.load_model(model_name, scaler_name)
+                        if model_name:
+                            progress(5, 'Loading model...')
+                            state.load_model(model_name, scaler_name)
                         
-                    iscell_saved = False
-                    if session_path:
-                        progress(15, f'Loading session {Path(session_path).name}...')
-                        state.load_session(session_path)
-                        iscell_saved = state.save_iscell_to_data_dir(
-                            progress=lambda f, status: progress(20 + 75 * f, status))
-                    progress(95, 'Refreshing the dashboard...')
+                        iscell_saved = False
+                        if session_path:
+                            progress(15, f'Loading session {Path(session_path).name}...')
+                            state.load_session(session_path)
+                            iscell_saved = state.save_iscell_to_data_dir(
+                                progress=lambda f, status: progress(20 + 75 * f, status))
+                        progress(95, 'Refreshing the dashboard...')
                         
-                    self.send_json({
-                        'status': 'success',
-                        'active_model': str(state.model_path) if state.model_path else None,
-                        'active_scaler': str(state.scaler_path) if state.scaler_path else None,
-                        'active_session': str(state.session_path) if state.session_path else None,
-                        'num_features': state.num_features,
-                        'iscell_saved': iscell_saved,
-                        'active_model_info': state.get_active_model_info()
-                    })
+                        self.send_json({
+                            'status': 'success',
+                            'active_model': str(state.model_path) if state.model_path else None,
+                            'active_scaler': str(state.scaler_path) if state.scaler_path else None,
+                            'active_session': str(state.session_path) if state.session_path else None,
+                            'num_features': state.num_features,
+                            'iscell_saved': iscell_saved,
+                            'active_model_info': state.get_active_model_info()
+                        })
+                    finally:
+                        state.apply_progress.update(percent=100, status='Done', active=False)
             except Exception as e:
                 self.send_error_json(str(e))
-            finally:
-                state.apply_progress.update(percent=100, status='Done', active=False)
             return
             
         elif path == '/api/session_info':
@@ -3447,13 +3450,15 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             if (elapsed !== undefined) document.getElementById('apply-progress-time').textContent = `${Math.round(elapsed)}s`;
         }
         function startApplyProgress() {
-            let shown = 0;
+            let shown = 0, jobStarted = null;
             setApplyProgress(0, 'Starting...', 0);
             document.getElementById('apply-progress').classList.remove('hidden');
             applyProgressTimer = setInterval(async () => {
                 try {
                     let p = await (await fetch('/api/apply_progress')).json();
                     if (!p.active) return;
+                    // A new job started (e.g. this click was queued behind another one): start over
+                    if (p.started !== jobStarted) { jobStarted = p.started; shown = 0; }
                     // Ease toward the next stage boundary while the server is busy in one stage
                     let ceiling = Math.min(p.percent + 5, 99);
                     shown = Math.max(shown, p.percent);
