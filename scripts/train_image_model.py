@@ -40,6 +40,7 @@ def main():
                     help="session-path substrings kept out of training (add a demo session here)")
     ap.add_argument('--name', default=None)
     ap.add_argument('--description', default=None)
+    ap.add_argument('--idea', default=None, help="one-line idea shown in the dashboard tooltip")
     args = ap.parse_args()
     features = args.features.split(',') if args.features else FEATURES
 
@@ -82,6 +83,12 @@ def main():
         'requires_ops': True,
         'min_ops_alignment': MIN_ALIGNMENT,
         'fallback': 'regular preset (models/suite2p_best_lgb.pkl) when ops.npy is missing or does not match stat.npy',
+        'trained': __import__('datetime').date.today().isoformat(),
+        'training_data': (f"{len(sessions)} sessions ({args.pool}): "
+                          + ", ".join(sorted(Path(x).name for x in sessions))
+                          + (f"; held out: {', '.join(e for e in args.exclude if e not in ('stav22', 'stav3/21'))}"
+                             if any(e not in ('stav22', 'stav3/21') for e in args.exclude) else "")),
+        'idea': args.idea,
         'training_pool': args.pool,
         'excluded_sessions': args.exclude,
         'training_sessions': sessions,
