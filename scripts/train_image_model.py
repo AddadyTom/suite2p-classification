@@ -41,6 +41,8 @@ def main():
     ap.add_argument('--name', default=None)
     ap.add_argument('--description', default=None)
     ap.add_argument('--idea', default=None, help="one-line idea shown in the dashboard tooltip")
+    ap.add_argument('--beta', type=float, default=1.0,
+                    help="threshold maximizes F-beta; beta < 1 when false positives cost more (0.5: FP = 2x FN)")
     args = ap.parse_args()
     features = args.features.split(',') if args.features else FEATURES
 
@@ -59,7 +61,7 @@ def main():
     sessions = sorted(set(g))
     print(f"Training on {len(sessions)} sessions ({args.pool}), {len(y)} ROIs, {len(features)} features")
 
-    model, thr, n_iter = fit_nested(X, y, g, n_inner=args.inner)
+    model, thr, n_iter = fit_nested(X, y, g, n_inner=args.inner, beta=args.beta)
     joblib.dump(model, out)
 
     cv = {}
@@ -77,7 +79,9 @@ def main():
         'active_features': features,
         'custom_features': {},
         'threshold': thr,
-        'threshold_source': f'F1-optimal on {args.inner}-fold session-grouped out-of-fold predictions',
+        'threshold_source': (f'F{args.beta:g}-optimal on {args.inner}-fold session-grouped out-of-fold predictions'
+                             + (' (false positives weighted more than false negatives)' if args.beta < 1 else '')),
+        'threshold_objective_beta': args.beta,
         'n_estimators': n_iter,
         'feature_code': 'fe_engine.session_features.compute_session_features',
         'requires_ops': True,

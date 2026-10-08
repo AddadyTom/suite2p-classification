@@ -29,7 +29,7 @@ from pathlib import Path
 
 import lightgbm as lgb
 import numpy as np
-from sklearn.metrics import f1_score, precision_score, recall_score
+from sklearn.metrics import f1_score, fbeta_score, precision_score, recall_score
 from sklearn.model_selection import GroupKFold
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -99,13 +99,14 @@ def spw_of(y):
     return (y == 0).sum() / max((y == 1).sum(), 1)
 
 
-def best_threshold(y, p):
-    f1s = [f1_score(y, p >= t, zero_division=0) for t in THRESH_GRID]
-    return float(THRESH_GRID[int(np.argmax(f1s))])
+def best_threshold(y, p, beta=1.0):
+    """Threshold maximizing F-beta (beta < 1 weights precision more: false positives cost more)."""
+    scores_ = [fbeta_score(y, p >= t, beta=beta, zero_division=0) for t in THRESH_GRID]
+    return float(THRESH_GRID[int(np.argmax(scores_))])
 
 
-def fit_nested(X, y, g, n_inner=3):
-    """Pick n_estimators and threshold using only (X, y, g); return fitted model + threshold."""
+def fit_nested(X, y, g, n_inner=3, beta=1.0):
+    """Pick n_estimators and threshold (max F-beta) using only (X, y, g); return fitted model + threshold."""
     oof = np.zeros(len(y))
     iters = []
     for tr, va in GroupKFold(n_splits=n_inner).split(X, y, g):
@@ -114,7 +115,7 @@ def fit_nested(X, y, g, n_inner=3):
               callbacks=[lgb.early_stopping(50, verbose=False)])
         iters.append(m.best_iteration_ or 1000)
         oof[va] = m.predict_proba(X[va])[:, 1]
-    thr = best_threshold(y, oof)
+    thr = best_threshold(y, oof, beta)
     final = model(int(np.mean(iters)), spw_of(y))
     final.fit(X, y)
     return final, thr, int(np.mean(iters))
