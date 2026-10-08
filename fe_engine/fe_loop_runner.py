@@ -38,12 +38,14 @@ def load_preprocessed_data(cache_dir):
     print(f"Loaded {len(sessions)} preprocessed sessions from cache.")
     return sessions
 
-def extract_features_dataset(sessions, active_features, session_callback=None):
+def extract_features_dataset(sessions, active_features, session_callback=None, progress_callback=None):
     """
     Extract the specified features for all sessions and concatenate them.
     We pass a single cache dictionary context to each extractor, caching features
     as they are evaluated. If a trace feature is missing, we load F and Fneu from
     the raw session folder on-demand using memmap, and free them immediately.
+    progress_callback(fraction), if given, is called after each feature of each chunk
+    (fraction of the whole dataset done, 0-1).
     """
     import fe_engine.fe_definitions
     FEATURE_REGISTRY = fe_engine.fe_definitions.FEATURE_REGISTRY
@@ -91,6 +93,7 @@ def extract_features_dataset(sessions, active_features, session_callback=None):
         
         # Now process active features in chunks
         chunk_features_list = []
+        n_chunks = max(1, -(-n_cells // chunk_size))
         for i in range(0, n_cells, chunk_size):
             chunk_cache = {}
             # Copy non-trace scalar features for this chunk
@@ -117,6 +120,9 @@ def extract_features_dataset(sessions, active_features, session_callback=None):
                     feat_val = chunk_cache[name]
                 
                 chunk_feats.append(feat_val.reshape(-1, 1))
+                if progress_callback:
+                    done = (i // chunk_size) * len(active_features) + len(chunk_feats)
+                    progress_callback((idx + done / (n_chunks * len(active_features))) / len(sessions))
             
             chunk_features_list.append(np.hstack(chunk_feats))
             

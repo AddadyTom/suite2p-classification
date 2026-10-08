@@ -41,12 +41,14 @@ def _max_width(F, Fneu):
     return out
 
 
-def compute_session_features(session_path, feature_names):
+def compute_session_features(session_path, feature_names, progress=None):
     """
     Returns (X, image_ok): X is (n_rois, len(feature_names)) in the given order.
     image_ok is False when the model needs image features but ops.npy is missing
     or does not match stat.npy (the image columns are then all NaN).
+    progress(fraction, status), if given, is called as the steps advance (fraction 0-1).
     """
+    progress = progress or (lambda fraction, status: None)
     session_path = Path(session_path)
     stat = np.load(session_path / 'stat.npy', allow_pickle=True)
     n = len(stat)
@@ -56,15 +58,20 @@ def compute_session_features(session_path, feature_names):
 
     trace_names = [f for f in feature_names if f not in IMAGE_FEATURES]
     if 'max_width' in trace_names:
+        progress(0.0, 'Measuring transient widths...')
         F = np.load(session_path / 'F.npy', mmap_mode='r')
         Fneu = np.load(session_path / 'Fneu.npy', mmap_mode='r')
         session['max_width'] = _max_width(F, Fneu)
-    X_trace, _, _ = extract_features_dataset([session], trace_names)
+    progress(0.15, 'Computing trace features...')
+    X_trace, _, _ = extract_features_dataset(
+        [session], trace_names,
+        progress_callback=lambda f: progress(0.15 + 0.7 * f, 'Computing trace features...'))
     cols = dict(zip(trace_names, X_trace.T))
 
     image_ok = True
     img_names = [f for f in feature_names if f in IMAGE_FEATURES]
     if img_names:
+        progress(0.85, 'Computing image features from ops.npy...')
         if (session_path / 'ops.npy').exists():
             img = compute_image_features(session_path, stat=stat)
         else:

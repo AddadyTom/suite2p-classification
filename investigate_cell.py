@@ -1,6 +1,7 @@
 import os
 import sys
 import gc
+import time
 import json
 import joblib
 import shutil
@@ -984,6 +985,9 @@ class SessionState:
         self.y_preds = None
         self.iscell_meta = None
         
+        # Progress of the current Apply Settings (polled by the dashboard's progress bar)
+        self.apply_progress = {'percent': 0, 'status': 'Idle', 'active': False, 'started': None}
+
         # Progress tracking for CV evaluation
         self.cv_progress = {
             'percent': 0,
@@ -1358,7 +1362,7 @@ class SessionState:
             print(f"Filled {int(nan_mask.sum())} NaN feature values with session medians for display.")
             self.X_extracted = X
 
-    def save_iscell_to_data_dir(self):
+    def save_iscell_to_data_dir(self, progress=None):
         if self.session_path is None or self.model_path is None:
             return False
             
@@ -1367,7 +1371,8 @@ class SessionState:
                 session_path=self.session_path,
                 model_spec=self.model_path,
                 scaler_spec=self.scaler_path,
-                save_iscell=True
+                save_iscell=True,
+                progress=progress
             )
             self._store_pipeline_results(results)
             print(f"Saved AI model predictions ({int(np.sum(self.y_preds))} cells) to iscell.npy in {self.session_path.name}")
@@ -1724,7 +1729,18 @@ class DashHandler(BaseHTTPRequestHandler):
                 self.send_error_json(str(e))
             return
             
+        elif path == '/api/apply_progress':
+            # Read without state.lock: /api/change_settings holds it while it runs
+            self.send_json(dict(state.apply_progress, elapsed=(time.time() - state.apply_progress['started'])
+                                if state.apply_progress['started'] else 0))
+            return
+
         elif path == '/api/change_settings':
+            def progress(percent, status):
+                state.apply_progress.update(percent=percent, status=status)
+
+            state.apply_progress = {'percent': 0, 'status': 'Waiting for the current job to finish...',
+                                    'active': True, 'started': time.time()}
             try:
                 with state.lock:
                     session_path = params.get('session_path', [None])[0]
@@ -1732,12 +1748,16 @@ class DashHandler(BaseHTTPRequestHandler):
                     scaler_name = params.get('scaler_name', [None])[0]
                     
                     if model_name:
+                        progress(5, 'Loading model...')
                         state.load_model(model_name, scaler_name)
                         
                     iscell_saved = False
                     if session_path:
+                        progress(15, f'Loading session {Path(session_path).name}...')
                         state.load_session(session_path)
-                        iscell_saved = state.save_iscell_to_data_dir()
+                        iscell_saved = state.save_iscell_to_data_dir(
+                            progress=lambda f, status: progress(20 + 75 * f, status))
+                    progress(95, 'Refreshing the dashboard...')
                         
                     self.send_json({
                         'status': 'success',
@@ -1750,6 +1770,8 @@ class DashHandler(BaseHTTPRequestHandler):
                     })
             except Exception as e:
                 self.send_error_json(str(e))
+            finally:
+                state.apply_progress.update(percent=100, status='Done', active=False)
             return
             
         elif path == '/api/session_info':
@@ -3074,6 +3096,23 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <p class="text-sm font-semibold text-gray-300">Calculating explainability attributions...</p>
     </div>
 
+    <!-- APPLY SETTINGS PROGRESS -->
+    <div id="apply-progress" class="hidden fixed inset-0 z-50 bg-brand-darkBg/70 flex items-center justify-center backdrop-blur-sm">
+        <div class="w-[420px] max-w-[90vw] bg-brand-card border border-brand-border rounded-2xl p-5 shadow-xl">
+            <div class="flex items-center justify-between mb-3">
+                <p class="text-sm font-semibold text-gray-200">Applying settings</p>
+                <span id="apply-progress-pct" class="text-xs font-mono text-blue-300">0%</span>
+            </div>
+            <div class="h-2.5 w-full bg-brand-border/60 rounded-full overflow-hidden">
+                <div id="apply-progress-bar" class="h-full bg-blue-500 rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+            <div class="flex items-center justify-between mt-3 gap-3">
+                <p id="apply-progress-status" class="text-xs text-gray-400 truncate">Starting...</p>
+                <span id="apply-progress-time" class="text-xs font-mono text-gray-500 shrink-0">0s</span>
+            </div>
+        </div>
+    </div>
+
     <!-- MAIN JAVASCRIPT LOGIC -->
     <script>
         let sessionInfo = null;
@@ -3397,9 +3436,40 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         }
 
         let isApplying = false;
+
+        // Progress overlay for Apply Settings. The server reports its progress through the pipeline;
+        // between updates the bar creeps a little ahead so it never looks frozen.
+        let applyProgressTimer = null;
+        function setApplyProgress(pct, status, elapsed) {
+            document.getElementById('apply-progress-bar').style.width = `${pct}%`;
+            document.getElementById('apply-progress-pct').textContent = `${Math.round(pct)}%`;
+            if (status) document.getElementById('apply-progress-status').textContent = status;
+            if (elapsed !== undefined) document.getElementById('apply-progress-time').textContent = `${Math.round(elapsed)}s`;
+        }
+        function startApplyProgress() {
+            let shown = 0;
+            setApplyProgress(0, 'Starting...', 0);
+            document.getElementById('apply-progress').classList.remove('hidden');
+            applyProgressTimer = setInterval(async () => {
+                try {
+                    let p = await (await fetch('/api/apply_progress')).json();
+                    if (!p.active) return;
+                    // Ease toward the next stage boundary while the server is busy in one stage
+                    let ceiling = Math.min(p.percent + 5, 99);
+                    shown = Math.max(shown, p.percent);
+                    shown += (ceiling - shown) * 0.05;
+                    setApplyProgress(shown, p.status, p.elapsed);
+                } catch (e) { /* keep polling */ }
+            }, 400);
+        }
+        function stopApplyProgress() {
+            clearInterval(applyProgressTimer);
+            applyProgressTimer = null;
+            document.getElementById('apply-progress').classList.add('hidden');
+        }
+
         async function applySettings() {
             if (isApplying) return;
-            isApplying = true;
             
             let sessionPath = document.getElementById('session-path-input').value.trim();
             let modelName = document.getElementById('model-select').value;
@@ -3409,8 +3479,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 alert("Please enter a Suite2p session folder path.");
                 return;
             }
+            isApplying = true;
             
-            showLoader(true);
+            startApplyProgress();
             try {
                 let url = `/api/change_settings?session_path=${encodeURIComponent(sessionPath)}&model_name=${encodeURIComponent(modelName)}&scaler_name=${encodeURIComponent(scalerName)}`;
                 let res = await fetch(url);
@@ -3421,6 +3492,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     if (data.active_model_info) {
                         renderModelCard(data.active_model_info);
                     }
+                    setApplyProgress(100, 'Done');
+                    stopApplyProgress();
                     await loadSessionInfo();
                     if (data.iscell_saved) {
                         console.log("Updated iscell.npy saved to session directory for Suite2p GUI.");
@@ -3429,7 +3502,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             } catch(e) {
                 alert("Error applying settings: " + e);
             } finally {
-                showLoader(false);
+                stopApplyProgress();
                 isApplying = false;
             }
         }
