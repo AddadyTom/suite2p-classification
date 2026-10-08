@@ -1,0 +1,28 @@
+roi,label,p_trace_model,p_image_cnn,models_say,session_path
+84,0,0.997,0.997,cell,/mnt/other_ubunthu/mnt/data/10-ordered/Inbar10
+49,0,0.990,0.999,cell,/mnt/other_ubunthu/mnt/data/10-ordered/Inbar10
+835,1,0.015,0.001,not cell,/mnt/other_ubunthu/mnt/data/10-ordered/Inbar10
+1091,1,0.016,0.001,not cell,/mnt/other_ubunthu/mnt/data/10-ordered/Inbar10
+230,0,0.988,0.990,cell,/mnt/other_ubunthu/mnt/data/10-ordered/Inbar10
+176,0,0.988,0.983,cell,/mnt/other_ubunthu/mnt/data/10-ordered/Inbar10
+168,1,0.005,0.027,not cell,/mnt/other_ubunthu/mnt/data/10-ordered/Inbar10
+1749,1,0.022,0.033,not cell,/mnt/other_ubunthu/mnt/data/10-ordered/Inbar10
+270,0,0.947,0.997,cell,/mnt/other_ubunthu/mnt/data/10-ordered/Inbar10
+312,0,0.943,0.984,cell,/mnt/other_ubunthu/mnt/data/10-ordered/Inbar10
+1491,1,0.055,0.023,not cell,/mnt/other_ubunthu/mnt/data/10-ordered/Inbar10
+1569,1,0.051,0.028,not cell,/mnt/other_ubunthu/mnt/data/10-ordered/Inbar10
+108,0,0.994,0.923,cell,/mnt/other_ubunthu/mnt/data/10-ordered/Inbar10
+209,0,0.911,0.998,cell,/mnt/other_ubunthu/mnt/data/10-ordered/Inbar10
+969,1,0.007,0.111,not cell,/mnt/other_ubunthu/mnt/data/10-ordered/Inbar10
+1012,0,0.932,0.939,cell,/mnt/other_ubunthu/mnt/data/10-ordered/Inbar10
+320,0,0.887,0.975,cell,/mnt/other_ubunthu/mnt/data/10-ordered/Inbar10
+1704,1,0.132,0.011,not cell,/mnt/other_ubunthu/mnt/data/10-ordered/Inbar10
+330,0,0.865,0.981,cell,/mnt/other_ubunthu/mnt/data/10-ordered/Inbar10
+1948,1,0.033,0.130,not cell,/mnt/other_ubunthu/mnt/data/10-ordered/Inbar10
+2319,1,0.095,0.070,not cell,/mnt/other_ubunthu/mnt/data/10-ordered/Inbar10
+1972,0,0.868,0.959,cell,/mnt/other_ubunthu/mnt/data/10-ordered/Inbar10
+689,1,0.073,0.105,not cell,/mnt/other_ubunthu/mnt/data/10-ordered/Inbar10
+1828,1,0.139,0.053,not cell,/mnt/other_ubunthu/mnt/data/10-ordered/Inbar10
+187,1,0.131,0.063,not cell,/mnt/other_ubunthu/mnt/data/10-ordered/Inbar10
+279,0,0.850,0.946,cell,/mnt/other_ubunthu/mnt/data/10-ordered/Inbar10
+2487,1,0.126,0.133,not cell,/mnt/other_ubunthu/mnt/data/10-ordered/Inbar10

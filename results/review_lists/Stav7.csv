@@ -1,0 +1,29 @@
+roi,label,p_trace_model,p_image_cnn,models_say,session_path
+1635,1,0.046,0.009,not cell,/mnt/other_ubunthu/mnt/data/7-ordered/Stav7
+464,0,0.966,0.972,cell,/mnt/other_ubunthu/mnt/data/7-ordered/Stav7
+443,0,0.978,0.954,cell,/mnt/other_ubunthu/mnt/data/7-ordered/Stav7
+59,0,0.954,0.975,cell,/mnt/other_ubunthu/mnt/data/7-ordered/Stav7
+816,0,0.989,0.930,cell,/mnt/other_ubunthu/mnt/data/7-ordered/Stav7
+704,0,0.973,0.940,cell,/mnt/other_ubunthu/mnt/data/7-ordered/Stav7
+877,0,0.962,0.939,cell,/mnt/other_ubunthu/mnt/data/7-ordered/Stav7
+201,0,0.975,0.912,cell,/mnt/other_ubunthu/mnt/data/7-ordered/Stav7
+1203,1,0.082,0.045,not cell,/mnt/other_ubunthu/mnt/data/7-ordered/Stav7
+402,0,0.973,0.898,cell,/mnt/other_ubunthu/mnt/data/7-ordered/Stav7
+237,0,0.934,0.935,cell,/mnt/other_ubunthu/mnt/data/7-ordered/Stav7
+768,0,0.911,0.950,cell,/mnt/other_ubunthu/mnt/data/7-ordered/Stav7
+408,0,0.898,0.962,cell,/mnt/other_ubunthu/mnt/data/7-ordered/Stav7
+258,0,0.952,0.904,cell,/mnt/other_ubunthu/mnt/data/7-ordered/Stav7
+161,0,0.957,0.895,cell,/mnt/other_ubunthu/mnt/data/7-ordered/Stav7
+498,0,0.921,0.927,cell,/mnt/other_ubunthu/mnt/data/7-ordered/Stav7
+400,0,0.954,0.894,cell,/mnt/other_ubunthu/mnt/data/7-ordered/Stav7
+686,1,0.074,0.090,not cell,/mnt/other_ubunthu/mnt/data/7-ordered/Stav7
+1444,1,0.051,0.120,not cell,/mnt/other_ubunthu/mnt/data/7-ordered/Stav7
+228,0,0.936,0.890,cell,/mnt/other_ubunthu/mnt/data/7-ordered/Stav7
+892,0,0.916,0.910,cell,/mnt/other_ubunthu/mnt/data/7-ordered/Stav7
+310,0,0.952,0.870,cell,/mnt/other_ubunthu/mnt/data/7-ordered/Stav7
+660,0,0.860,0.955,cell,/mnt/other_ubunthu/mnt/data/7-ordered/Stav7
+136,0,0.888,0.922,cell,/mnt/other_ubunthu/mnt/data/7-ordered/Stav7
+414,0,0.914,0.887,cell,/mnt/other_ubunthu/mnt/data/7-ordered/Stav7
+155,0,0.930,0.868,cell,/mnt/other_ubunthu/mnt/data/7-ordered/Stav7
+29,0,0.860,0.933,cell,/mnt/other_ubunthu/mnt/data/7-ordered/Stav7
+322,0,0.930,0.853,cell,/mnt/other_ubunthu/mnt/data/7-ordered/Stav7

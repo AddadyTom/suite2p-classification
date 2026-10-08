@@ -1,0 +1,26 @@
+roi,label,p_trace_model,p_image_cnn,models_say,session_path
+322,0,0.998,0.978,cell,/mnt/other_ubunthu/mnt/data/20-ordered/Stav20
+281,0,0.979,0.993,cell,/mnt/other_ubunthu/mnt/data/20-ordered/Stav20
+283,0,0.973,0.994,cell,/mnt/other_ubunthu/mnt/data/20-ordered/Stav20
+1293,0,0.981,0.958,cell,/mnt/other_ubunthu/mnt/data/20-ordered/Stav20
+640,0,0.959,0.979,cell,/mnt/other_ubunthu/mnt/data/20-ordered/Stav20
+407,0,0.968,0.959,cell,/mnt/other_ubunthu/mnt/data/20-ordered/Stav20
+236,0,0.972,0.946,cell,/mnt/other_ubunthu/mnt/data/20-ordered/Stav20
+247,0,0.933,0.967,cell,/mnt/other_ubunthu/mnt/data/20-ordered/Stav20
+285,0,0.927,0.972,cell,/mnt/other_ubunthu/mnt/data/20-ordered/Stav20
+458,0,0.944,0.946,cell,/mnt/other_ubunthu/mnt/data/20-ordered/Stav20
+416,0,0.907,0.983,cell,/mnt/other_ubunthu/mnt/data/20-ordered/Stav20
+225,0,0.994,0.888,cell,/mnt/other_ubunthu/mnt/data/20-ordered/Stav20
+1021,1,0.015,0.104,not cell,/mnt/other_ubunthu/mnt/data/20-ordered/Stav20
+837,1,0.005,0.122,not cell,/mnt/other_ubunthu/mnt/data/20-ordered/Stav20
+666,0,0.958,0.915,cell,/mnt/other_ubunthu/mnt/data/20-ordered/Stav20
+413,0,0.929,0.942,cell,/mnt/other_ubunthu/mnt/data/20-ordered/Stav20
+276,0,0.903,0.956,cell,/mnt/other_ubunthu/mnt/data/20-ordered/Stav20
+495,0,0.947,0.905,cell,/mnt/other_ubunthu/mnt/data/20-ordered/Stav20
+228,0,0.885,0.959,cell,/mnt/other_ubunthu/mnt/data/20-ordered/Stav20
+288,0,0.951,0.893,cell,/mnt/other_ubunthu/mnt/data/20-ordered/Stav20
+574,0,0.880,0.952,cell,/mnt/other_ubunthu/mnt/data/20-ordered/Stav20
+598,0,0.893,0.907,cell,/mnt/other_ubunthu/mnt/data/20-ordered/Stav20
+284,0,0.886,0.904,cell,/mnt/other_ubunthu/mnt/data/20-ordered/Stav20
+265,0,0.880,0.911,cell,/mnt/other_ubunthu/mnt/data/20-ordered/Stav20
+651,0,0.893,0.875,cell,/mnt/other_ubunthu/mnt/data/20-ordered/Stav20
