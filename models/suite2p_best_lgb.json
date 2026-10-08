@@ -29,5 +29,8 @@
         "std_f",
         "std_fcorr"
     ],
-    "custom_features": {}
+    "custom_features": {},
+    "trained": "2026-09-06",
+    "training_data": "19 Stav sessions",
+    "idea": "Production baseline: the 26 hand-crafted trace + morphology features (number_of_bright_pixels removed). CV F1 0.84."
 }

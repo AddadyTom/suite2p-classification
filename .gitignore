@@ -13,3 +13,5 @@ feature_cache/
 # Nested repos & scratch
 suite2p-repo/
 scratch/
+feature_tables/
+catboost_info/

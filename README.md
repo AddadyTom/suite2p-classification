@@ -128,3 +128,32 @@ Once you have changed the active feature set, run:
 .venv/bin/python train_model.py
 ```
 This script will compile all cached sessions, run a 5-fold cross-validation, display average scores, and save the updated classifier to `models/suite2p_best_lgb.pkl` along with its feature schema JSON.
+
+---
+
+## 🧪 Leak-free evaluation & image features (`feat/image-features`)
+
+```bash
+# 1. One feature table per session (trace + intensity-normalized + ops.npy image features)
+PYTHONPATH=. .venv/bin/python scripts/build_feature_tables.py --cache preprocessed_cache --out feature_tables
+# 2. Repeated GroupKFold-by-session CV with nested threshold selection, feature-group ablation and SHAP
+PYTHONPATH=. .venv/bin/python scripts/evaluate_cv.py --tables feature_tables --out results
+```
+
+* Labels: `iscell_final.npy` > `iscell_backup_before_AI.npy` > `iscell.npy`. Yael sessions are never used; `stav22` (held out) and `Stav3/21` (suspect labels) are excluded by default; exact duplicate sessions (Stav1 = Stav5) are dropped.
+* The decision threshold and `n_estimators` are chosen with an inner session-grouped CV on the training folds only; the validation fold is never used for tuning.
+* Image features (`fe_engine/image_features.py`) need `ops.npy` matching `stat.npy`; sessions failing the alignment check get NaN image features and fall back to the trace/morphology model.
+* Results: `results/REPORT.md`, `results/cv_table.md`, `results/cv_results.json`.
+
+### Image-feature model (`image` preset)
+```bash
+python apply_AI.py /path/to/suite2p/plane0 image     # baseline + ops.npy image features
+python apply_AI.py /path/to/suite2p/plane0           # regular (default) model, unchanged
+```
+In the dashboard, pick **"[44 Features] LightGBM + image features"** in the model list, or start it directly:
+```bash
+PYTHONPATH=. .venv/bin/python investigate_cell.py --port 5000 --session /path/to/suite2p/plane0 --model models/image/suite2p_image_lgb.pkl
+```
+The threshold slider starts at the model's tuned threshold (0.65), and every image feature has an explanation in the attribution table. Note: **Apply Settings** writes the model's predictions to `iscell.npy` in the session folder (backing up the original to `iscell_backup_before_AI.npy` first), like `apply_AI.py`. The session needs an `ops.npy` that belongs to its `stat.npy`; otherwise the dashboard says so, and you should use a regular model for that session.
+
+`models/image/suite2p_image_lgb.pkl` (+ `.json` with features, threshold 0.65 and CV results) is trained by `scripts/train_image_model.py` on the 29 clean sessions. Leak-free CV F1 is 0.853 vs 0.827 for the 27-feature baseline. Features are computed with the training code (`fe_engine/session_features.py`), so no preprocessed_cache entry is needed. When `ops.npy` is missing or doesn't match `stat.npy`, it falls back to the regular model.
