@@ -103,7 +103,7 @@ pres.addSection({ title: "Overview" });
   const s = pres.addSlide({ masterName: "Content", sectionTitle: "Overview" });
   s.addText("Image features lift F1 from 0.827 to 0.853", { placeholder: "title" });
   const stats = [
-    ["0.827", "Current 27-feature model", "honest F1, threshold tuned on training sessions only", C.accent4],
+    ["0.827", "Previous 27-feature model", "honest F1, threshold tuned on training sessions only", C.accent4],
     ["0.853", "+ 17 image features", "ready as the 'image' preset in apply_AI.py", C.accent1],
     ["0.861", "+ CNN embedding", "best overall, but needs a CNN at inference", C.accent2],
   ];
@@ -270,7 +270,7 @@ pres.addSection({ title: "Image features" });
     showLegend: true, legendPos: "t", legendFontSize: 12, legendColor: H.dk1, barGapWidthPct: 60,
   }));
   s.addText([
-    { text: "The 10 lowest-scoring sessions under the current model. ", options: { bold: true, color: C.text2 } },
+    { text: "The 10 lowest-scoring sessions under the previous 27-feature model. ", options: { bold: true, color: C.text2 } },
     { text: "Inbar12 goes from worst (0.685) to 0.805. Inbar3 and Stav14 stay hardest; the labelling slide explains why.", options: { color: C.text1 } },
   ], { objectName: "per-session caption", x: M, y: 6.15, w: W - 2 * M, h: 0.7, fontSize: 15, margin: 0, valign: "top", isTextBox: true });
   s.addNotes("Per-session F1 is the mean over the 3 CV repeats. Only 2 of 29 sessions drop, by less than 0.005 (Stav16, Stav20).");
@@ -497,7 +497,7 @@ pres.addSection({ title: "Next steps" });
   card(s, "command card", M, 1.45, W - 2 * M, 1.25, C.text2);
   s.addText([
     para("python apply_AI.py /path/to/suite2p/plane0 image", { fontFace: "Courier New", fontSize: 20, color: C.background1, bold: true }),
-    { text: "Without 'image', the current model runs exactly as before; nothing in models/ or any iscell file was changed", options: { fontSize: 14, color: C.accent6 } },
+    { text: "Without 'image', the previous 27-feature model runs exactly as before; nothing in models/ or any iscell file was changed", options: { fontSize: 14, color: C.accent6 } },
   ], { objectName: "command text", x: M + 0.35, y: 1.55, w: W - 2 * M - 0.7, h: 1.05, valign: "middle", margin: 0, isTextBox: true });
   const items = [
     ["Model", "models/image/suite2p_image_lgb.pkl: 27 + 17 features, 29 sessions, 466 trees"],
