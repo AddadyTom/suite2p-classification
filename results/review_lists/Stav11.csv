@@ -1,0 +1,12 @@
+roi,label,p_trace_model,p_image_cnn,models_say,session_path
+2431,1,0.010,0.038,not cell,/mnt/other_ubunthu/mnt/data/11-ordered/Stav11
+1373,1,0.029,0.060,not cell,/mnt/other_ubunthu/mnt/data/11-ordered/Stav11
+959,0,0.986,0.909,cell,/mnt/other_ubunthu/mnt/data/11-ordered/Stav11
+433,0,0.921,0.971,cell,/mnt/other_ubunthu/mnt/data/11-ordered/Stav11
+621,0,0.920,0.962,cell,/mnt/other_ubunthu/mnt/data/11-ordered/Stav11
+315,0,0.903,0.965,cell,/mnt/other_ubunthu/mnt/data/11-ordered/Stav11
+559,1,0.078,0.101,not cell,/mnt/other_ubunthu/mnt/data/11-ordered/Stav11
+283,0,0.880,0.930,cell,/mnt/other_ubunthu/mnt/data/11-ordered/Stav11
+1594,1,0.130,0.077,not cell,/mnt/other_ubunthu/mnt/data/11-ordered/Stav11
+940,1,0.100,0.133,not cell,/mnt/other_ubunthu/mnt/data/11-ordered/Stav11
+636,0,0.854,0.882,cell,/mnt/other_ubunthu/mnt/data/11-ordered/Stav11

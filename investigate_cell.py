@@ -1,13 +1,14 @@
 import os
 import sys
 import gc
+import time
 import json
 import joblib
 import shutil
 import numpy as np
 import urllib.parse
 from pathlib import Path
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from scipy.stats import skew
 from scipy.signal import find_peaks, peak_widths
 import webbrowser
@@ -63,6 +64,34 @@ MASTER_FEATURE_DESCS = {
     'activity_ratio': 'Ratio of variance above the median to variance below. Highlights positive-going calcium transients.',
     'peak_density': 'Density of 2-standard-deviation peaks per frame. Measures active firing frequency.'
 }
+
+# Features of the image model (models/image), computed by fe_engine/image_features.py and
+# fe_engine/fe_definitions.py (intensity-normalized trace features)
+for _img in ('meanImg', 'meanImgE', 'max_proj', 'Vcorr'):
+    MASTER_FEATURE_DESCS[f'{_img}_contrast_z'] = (f'Mask vs surrounding 2-7 px ring in {_img}: (lam-weighted mean inside '
+                                                  f'- ring mean) / ring std. Real somata stand out from their surroundings.')
+    MASTER_FEATURE_DESCS[f'{_img}_lam_corr'] = (f'Correlation between the mask weights (lam) and {_img} pixels inside the mask. '
+                                                f'High when the bright part of the mask sits on a bright blob.')
+    MASTER_FEATURE_DESCS[f'{_img}_lam_corr_patch'] = (f'Correlation between the mask weights (0 in the ring) and {_img} over mask + ring: '
+                                                      f'shape and contrast match together.')
+MASTER_FEATURE_DESCS.update({
+    'meanImg_ratio': 'Mean image brightness inside the mask divided by the surrounding ring.',
+    'max_proj_ratio': 'Max-projection brightness inside the mask divided by the surrounding ring: did the ROI light up more than its surroundings?',
+    'Vcorr_in_mean': 'Mean local-correlation (Vcorr) value inside the mask. High when the pixels fluctuate together, as in an active cell.',
+    'Vcorr_in_minus_ring': 'Vcorr inside the mask minus Vcorr in the surrounding ring.',
+    'meanImg_neuropil_contrast': "Mean image inside the mask vs Suite2p's own neuropil mask (which excludes other ROIs), in units of neuropil std.",
+    'dff_q95': 'dF/F at the 95th percentile (F_corr - median) / median(F).',
+    'dff_q99': 'dF/F at the 99th percentile.',
+    'dff_q999': 'dF/F at the 99.9th percentile: size of the largest transients.',
+    'dff_max': 'Maximum dF/F.',
+    'dff_range': 'dF/F range between the 1st and 99th percentiles.',
+    'q95_over_noise': '95th percentile of F_corr above its median, in units of the trace noise (MAD of first differences).',
+    'q99_over_noise': '99th percentile of F_corr above its median, in noise units.',
+    'q999_over_noise': '99.9th percentile of F_corr above its median, in noise units: transient SNR.',
+    'range_over_noise': 'F_corr range (1st-99th percentile) in noise units.',
+    'noise_over_f0': 'Trace noise relative to baseline F (noise / median F).',
+    'f_over_fneu_baseline': 'Baseline ratio median(F) / median(Fneu): how much brighter the ROI is than its neuropil.',
+})
 
 # Legacy Feature Lists
 FEATURE_NAMES_24_legacy = [
@@ -912,6 +941,27 @@ def _extract_features_vectorized_chunk(F, Fneu, spks, stat, feature_names, custo
 # 3. INTERACTIVE SERVER BACKEND
 # ==========================================
 
+def _model_option_value(model_path):
+    """The model dropdown lists paths relative to the repo; report the active model the same way."""
+    if not model_path:
+        return None
+    try:
+        return str(Path(model_path).resolve().relative_to(BASE_DIR))
+    except ValueError:
+        return str(model_path)
+
+
+def _json_safe(obj):
+    """Replace NaN/Inf (invalid in JSON, they break the browser's parser) with None."""
+    if isinstance(obj, float):
+        return obj if np.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    return obj
+
+
 class SessionState:
     def __init__(self):
         self.session_path = None
@@ -935,6 +985,9 @@ class SessionState:
         self.y_preds = None
         self.iscell_meta = None
         
+        # Progress of the current Apply Settings (polled by the dashboard's progress bar)
+        self.apply_progress = {'percent': 0, 'status': 'Idle', 'active': False, 'started': None}
+
         # Progress tracking for CV evaluation
         self.cv_progress = {
             'percent': 0,
@@ -975,7 +1028,10 @@ class SessionState:
                 'description': desc,
                 'active_features': active_feats,
                 'feature_count': len(active_feats),
-                'custom_features': meta.get('custom_features', {})
+                'custom_features': meta.get('custom_features', {}),
+                'trained': meta.get('trained'),
+                'training_data': meta.get('training_data'),
+                'idea': meta.get('idea')
             })
             
         return sorted(models), sorted(scalers), model_details
@@ -998,7 +1054,11 @@ class SessionState:
             'description': meta.get('description') or 'Custom trained model.',
             'active_features': active_feats,
             'feature_count': len(active_feats),
-            'custom_features': meta.get('custom_features', {})
+            'custom_features': meta.get('custom_features', {}),
+            'threshold': meta.get('threshold'),  # tuned decision threshold, if the model stores one
+            'trained': meta.get('trained'),
+            'training_data': meta.get('training_data'),
+            'idea': meta.get('idea')
         }
 
     def load_model(self, model_name, scaler_name=None):
@@ -1264,13 +1324,14 @@ class SessionState:
                         save_iscell=False,
                         custom_features=self.custom_features
                     )
-                    self.X_extracted = results["X_extracted"]
-                    self.y_probs = results["probs"]
-                    self.y_preds = results["is_cell"]
+                    self._store_pipeline_results(results)
                 except Exception as e:
                     print(f"Error extracting features: {e}")
                     import traceback; traceback.print_exc()
                     self.X_extracted = None
+                    # Surface the real reason (e.g. ops.npy not matching stat.npy) instead of a
+                    # follow-on error from predicting on missing features
+                    raise RuntimeError(f"Could not compute this model's features for the session: {e}") from e
                 # 3. Predict using model (if not already predicted by run_ai_pipeline)
                 if getattr(self, 'y_probs', None) is None:
                     X_proc = self.X_extracted
@@ -1286,7 +1347,22 @@ class SessionState:
                 self.ref_noncells_means = np.mean(self.X_extracted[self.y_true == 0], axis=0) if has_gt and np.sum(self.y_true == 0) > 0 else self.ref_means
                 print("Calculated reference averages from session.")
 
-    def save_iscell_to_data_dir(self):
+    def _store_pipeline_results(self, results):
+        self.X_extracted = results["X_extracted"]
+        self.y_probs = results["probs"]
+        self.y_preds = results["is_cell"]
+        # Image features can be NaN for a few ROIs (e.g. a saturated, constant patch).
+        # Probabilities above were computed with the NaNs (LightGBM handles them); the
+        # copy kept for explanations, statistics and JSON uses the session median instead.
+        if self.X_extracted is not None and np.isnan(self.X_extracted).any():
+            X = np.array(self.X_extracted, dtype=np.float64)
+            med = np.nan_to_num(np.nanmedian(X, axis=0))
+            nan_mask = np.isnan(X)
+            X[nan_mask] = np.take(med, np.where(nan_mask)[1])
+            print(f"Filled {int(nan_mask.sum())} NaN feature values with session medians for display.")
+            self.X_extracted = X
+
+    def save_iscell_to_data_dir(self, progress=None):
         if self.session_path is None or self.model_path is None:
             return False
             
@@ -1295,11 +1371,10 @@ class SessionState:
                 session_path=self.session_path,
                 model_spec=self.model_path,
                 scaler_spec=self.scaler_path,
-                save_iscell=True
+                save_iscell=True,
+                progress=progress
             )
-            self.X_extracted = results['X_extracted']
-            self.y_probs = results['probs']
-            self.y_preds = results['is_cell']
+            self._store_pipeline_results(results)
             print(f"Saved AI model predictions ({int(np.sum(self.y_preds))} cells) to iscell.npy in {self.session_path.name}")
             return True
         except Exception as e:
@@ -1643,7 +1718,7 @@ class DashHandler(BaseHTTPRequestHandler):
                     'scalers': scalers,
                     'model_details': model_details,
                     'suggested_sessions': existing_sessions,
-                    'active_model': str(state.model_path) if state.model_path else None,
+                    'active_model': _model_option_value(state.model_path),
                     'active_scaler': str(state.scaler_path) if state.scaler_path else None,
                     'active_session': str(state.session_path) if state.session_path else None,
                     'num_features': state.num_features,
@@ -1654,30 +1729,50 @@ class DashHandler(BaseHTTPRequestHandler):
                 self.send_error_json(str(e))
             return
             
+        elif path == '/api/apply_progress':
+            # Read without state.lock: /api/change_settings holds it while it runs
+            self.send_json(dict(state.apply_progress, elapsed=(time.time() - state.apply_progress['started'])
+                                if state.apply_progress['started'] else 0))
+            return
+
         elif path == '/api/change_settings':
+            def progress(percent, status):
+                state.apply_progress.update(percent=percent, status=status)
+
             try:
                 with state.lock:
-                    session_path = params.get('session_path', [None])[0]
-                    model_name = params.get('model_name', [None])[0]
-                    scaler_name = params.get('scaler_name', [None])[0]
+                    # Reset only once this request holds the lock, so a request still waiting
+                    # does not take over (and later mark as done) the progress of the running one
+                    state.apply_progress = {'percent': 0, 'status': 'Starting...',
+                                            'active': True, 'started': time.time()}
+                    try:
+                        session_path = params.get('session_path', [None])[0]
+                        model_name = params.get('model_name', [None])[0]
+                        scaler_name = params.get('scaler_name', [None])[0]
                     
-                    if model_name:
-                        state.load_model(model_name, scaler_name)
+                        if model_name:
+                            progress(5, 'Loading model...')
+                            state.load_model(model_name, scaler_name)
                         
-                    iscell_saved = False
-                    if session_path:
-                        state.load_session(session_path)
-                        iscell_saved = state.save_iscell_to_data_dir()
+                        iscell_saved = False
+                        if session_path:
+                            progress(15, f'Loading session {Path(session_path).name}...')
+                            state.load_session(session_path)
+                            iscell_saved = state.save_iscell_to_data_dir(
+                                progress=lambda f, status: progress(20 + 75 * f, status))
+                        progress(95, 'Refreshing the dashboard...')
                         
-                    self.send_json({
-                        'status': 'success',
-                        'active_model': str(state.model_path) if state.model_path else None,
-                        'active_scaler': str(state.scaler_path) if state.scaler_path else None,
-                        'active_session': str(state.session_path) if state.session_path else None,
-                        'num_features': state.num_features,
-                        'iscell_saved': iscell_saved,
-                        'active_model_info': state.get_active_model_info()
-                    })
+                        self.send_json({
+                            'status': 'success',
+                            'active_model': str(state.model_path) if state.model_path else None,
+                            'active_scaler': str(state.scaler_path) if state.scaler_path else None,
+                            'active_session': str(state.session_path) if state.session_path else None,
+                            'num_features': state.num_features,
+                            'iscell_saved': iscell_saved,
+                            'active_model_info': state.get_active_model_info()
+                        })
+                    finally:
+                        state.apply_progress.update(percent=100, status='Done', active=False)
             except Exception as e:
                 self.send_error_json(str(e))
             return
@@ -2474,7 +2569,7 @@ class DashHandler(BaseHTTPRequestHandler):
         self.send_header('Content-type', 'application/json')
         self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
-        self.wfile.write(json.dumps(data).encode('utf-8'))
+        self.wfile.write(json.dumps(_json_safe(data)).encode('utf-8'))
         
     def send_error_json(self, message):
         self.send_response(500)
@@ -3004,6 +3099,23 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <p class="text-sm font-semibold text-gray-300">Calculating explainability attributions...</p>
     </div>
 
+    <!-- APPLY SETTINGS PROGRESS -->
+    <div id="apply-progress" class="hidden fixed inset-0 z-50 bg-brand-darkBg/70 flex items-center justify-center backdrop-blur-sm">
+        <div class="w-[420px] max-w-[90vw] bg-brand-card border border-brand-border rounded-2xl p-5 shadow-xl">
+            <div class="flex items-center justify-between mb-3">
+                <p class="text-sm font-semibold text-gray-200">Applying settings</p>
+                <span id="apply-progress-pct" class="text-xs font-mono text-blue-300">0%</span>
+            </div>
+            <div class="h-2.5 w-full bg-brand-border/60 rounded-full overflow-hidden">
+                <div id="apply-progress-bar" class="h-full bg-blue-500 rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+            <div class="flex items-center justify-between mt-3 gap-3">
+                <p id="apply-progress-status" class="text-xs text-gray-400 truncate">Starting...</p>
+                <span id="apply-progress-time" class="text-xs font-mono text-gray-500 shrink-0">0s</span>
+            </div>
+        </div>
+    </div>
+
     <!-- MAIN JAVASCRIPT LOGIC -->
     <script>
         let sessionInfo = null;
@@ -3144,7 +3256,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             
             document.getElementById('btn-uncertain').innerHTML = `<i class="fa-solid fa-question-circle"></i> Uncertain 15-85% (<span id="count-unc">${uncertain.length}</span>)`;
             
-            document.getElementById('pred-cells-display').textContent = fp_count; // fp contains all pred===1 cells when g===0
+            document.getElementById('pred-cells-display').textContent = tp_count + fp_count;
             document.getElementById('count-tp').textContent = tp_count;
             document.getElementById('count-fp').textContent = fp_count;
             document.getElementById('count-fn').textContent = fn_count;
@@ -3189,6 +3301,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
         function renderModelCard(modelInfo) {
             if (!modelInfo) return;
+            // Models that store their tuned threshold (e.g. the image model) start the slider there
+            if (typeof modelInfo.threshold === 'number') {
+                let t = Math.round(modelInfo.threshold * 100) / 100;
+                document.getElementById('threshold-slider').value = t;
+                document.getElementById('threshold-value').textContent = t.toFixed(2);
+                activeThreshold = t;
+                if (sessionInfo && sessionInfo.loaded) updateThreshold(t);
+            }
             let titleEl = document.getElementById('model-card-title');
             let descEl = document.getElementById('model-card-desc');
             let countEl = document.getElementById('model-card-count');
@@ -3218,11 +3338,21 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             }
         }
 
+        // Hover text for a model: when it was trained, on what data, and the idea behind it
+        function modelTooltip(m) {
+            let lines = [m.name || m.filename || ''];
+            if (m.trained) lines.push(`Trained: ${m.trained}`);
+            if (m.training_data) lines.push(`Data: ${m.training_data}`);
+            lines.push(`Idea: ${m.idea || m.description || 'No description recorded.'}`);
+            return lines.join('\\n');
+        }
+
         function onModelSelectChange() {
             let modelSelect = document.getElementById('model-select');
             if (!modelSelect) return;
             let val = modelSelect.value;
             let found = (window.allModelDetails || []).find(m => m.path === val || m.filename === val);
+            modelSelect.title = found ? modelTooltip(found) : '';
             if (found) {
                 renderModelCard(found);
             }
@@ -3243,6 +3373,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                             let opt = document.createElement('option');
                             opt.value = m.path;
                             opt.textContent = `[${m.feature_count} Features] ${m.name} (${m.filename})`;
+                            opt.title = modelTooltip(m);
                             modelSelect.appendChild(opt);
                         });
                     } else if (data.models) {
@@ -3256,6 +3387,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     if (data.active_model) {
                         modelSelect.value = data.active_model;
                     }
+                    let sel = modelSelect.options[modelSelect.selectedIndex];
+                    modelSelect.title = sel ? sel.title : '';
                 }
                 
                 let scalerDatalist = document.getElementById('scaler-options');
@@ -3306,9 +3439,42 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         }
 
         let isApplying = false;
+
+        // Progress overlay for Apply Settings. The server reports its progress through the pipeline;
+        // between updates the bar creeps a little ahead so it never looks frozen.
+        let applyProgressTimer = null;
+        function setApplyProgress(pct, status, elapsed) {
+            document.getElementById('apply-progress-bar').style.width = `${pct}%`;
+            document.getElementById('apply-progress-pct').textContent = `${Math.round(pct)}%`;
+            if (status) document.getElementById('apply-progress-status').textContent = status;
+            if (elapsed !== undefined) document.getElementById('apply-progress-time').textContent = `${Math.round(elapsed)}s`;
+        }
+        function startApplyProgress() {
+            let shown = 0, jobStarted = null;
+            setApplyProgress(0, 'Starting...', 0);
+            document.getElementById('apply-progress').classList.remove('hidden');
+            applyProgressTimer = setInterval(async () => {
+                try {
+                    let p = await (await fetch('/api/apply_progress')).json();
+                    if (!p.active) return;
+                    // A new job started (e.g. this click was queued behind another one): start over
+                    if (p.started !== jobStarted) { jobStarted = p.started; shown = 0; }
+                    // Ease toward the next stage boundary while the server is busy in one stage
+                    let ceiling = Math.min(p.percent + 5, 99);
+                    shown = Math.max(shown, p.percent);
+                    shown += (ceiling - shown) * 0.05;
+                    setApplyProgress(shown, p.status, p.elapsed);
+                } catch (e) { /* keep polling */ }
+            }, 400);
+        }
+        function stopApplyProgress() {
+            clearInterval(applyProgressTimer);
+            applyProgressTimer = null;
+            document.getElementById('apply-progress').classList.add('hidden');
+        }
+
         async function applySettings() {
             if (isApplying) return;
-            isApplying = true;
             
             let sessionPath = document.getElementById('session-path-input').value.trim();
             let modelName = document.getElementById('model-select').value;
@@ -3318,8 +3484,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 alert("Please enter a Suite2p session folder path.");
                 return;
             }
+            isApplying = true;
             
-            showLoader(true);
+            startApplyProgress();
             try {
                 let url = `/api/change_settings?session_path=${encodeURIComponent(sessionPath)}&model_name=${encodeURIComponent(modelName)}&scaler_name=${encodeURIComponent(scalerName)}`;
                 let res = await fetch(url);
@@ -3330,6 +3497,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     if (data.active_model_info) {
                         renderModelCard(data.active_model_info);
                     }
+                    setApplyProgress(100, 'Done');
+                    stopApplyProgress();
                     await loadSessionInfo();
                     if (data.iscell_saved) {
                         console.log("Updated iscell.npy saved to session directory for Suite2p GUI.");
@@ -3338,7 +3507,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             } catch(e) {
                 alert("Error applying settings: " + e);
             } finally {
-                showLoader(false);
+                stopApplyProgress();
                 isApplying = false;
             }
         }
@@ -4092,7 +4261,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         }
 
         function formatNumber(val) {
-            if (val === undefined || isNaN(val)) return '-';
+            if (val === undefined || val === null || isNaN(val)) return '-';
             if (Math.abs(val) < 0.001 && val !== 0) return val.toExponential(2);
             if (val % 1 !== 0) return val.toFixed(3);
             return val.toLocaleString();
@@ -4654,7 +4823,10 @@ def run_server(port=5000):
     #             except Exception as e:
     #                 print(f"Error loading initial session {s}: {e}")
                 
-    server = HTTPServer(('localhost', port), DashHandler)
+    # Threaded: browsers (Chrome) open idle pre-connections that would block a single-threaded
+    # server; heavy session/model work is still serialized by state.lock
+    server = ThreadingHTTPServer(('localhost', port), DashHandler)
+    server.daemon_threads = True
     print(f"\n==================================================================")
     print(f"  Suite2p AI Decision Explainer Server is running!")
     print(f"  --> Local Address: http://localhost:{port}")

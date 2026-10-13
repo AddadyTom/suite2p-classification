@@ -30,5 +30,8 @@
         "std_f",
         "std_fcorr"
     ],
-    "custom_features": {}
+    "custom_features": {},
+    "trained": "2026-09-07",
+    "training_data": "19 Stav sessions",
+    "idea": "Same as the production baseline plus number_of_bright_pixels (27 features), to test whether the raw bright-pixel count helps."
 }

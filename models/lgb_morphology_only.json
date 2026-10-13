@@ -10,5 +10,8 @@
         "radius",
         "solidity"
     ],
-    "custom_features": {}
+    "custom_features": {},
+    "trained": "2026-09-29",
+    "training_data": "All labelled sessions in the preprocessed cache at the time (Stav + Inbar), excluding Yael, Stav3/21 and Stav22 (held out)",
+    "idea": "Fewer features: only the 7 shape features (area, compactness, solidity...). Tests how far ROI shape alone goes."
 }

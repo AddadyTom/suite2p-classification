@@ -1,0 +1,12 @@
+fold 0: CNN alone F1=0.8725 AUC=0.9844 | baseline (27): F1=0.8410 AUC=0.9794 | baseline + CNN: F1=0.8713 AUC=0.9861 | + image (all): F1=0.8702 AUC=0.9859 | + image (all) + CNN: F1=0.8738 AUC=0.9875
+fold 1: CNN alone F1=0.8290 AUC=0.9766 | baseline (27): F1=0.7723 AUC=0.9617 | baseline + CNN: F1=0.8199 AUC=0.9743 | + image (all): F1=0.8047 AUC=0.9721 | + image (all) + CNN: F1=0.8261 AUC=0.9771
+fold 2: CNN alone F1=0.8722 AUC=0.9849 | baseline (27): F1=0.8460 AUC=0.9779 | baseline + CNN: F1=0.8735 AUC=0.9858 | + image (all): F1=0.8763 AUC=0.9849 | + image (all) + CNN: F1=0.8784 AUC=0.9872
+fold 3: CNN alone F1=0.8581 AUC=0.9810 | baseline (27): F1=0.8528 AUC=0.9785 | baseline + CNN: F1=0.8671 AUC=0.9836 | + image (all): F1=0.8675 AUC=0.9831 | + image (all) + CNN: F1=0.8731 AUC=0.9847
+fold 4: CNN alone F1=0.8179 AUC=0.9732 | baseline (27): F1=0.8258 AUC=0.9777 | baseline + CNN: F1=0.8400 AUC=0.9785 | + image (all): F1=0.8458 AUC=0.9817 | + image (all) + CNN: F1=0.8421 AUC=0.9799
+| Model | Precision | Recall | F1 | AUC | ΔF1 vs + image (all) |
+|---|---|---|---|---|---|
+| CNN alone | 0.8467 | 0.8550 | 0.8499 ± 0.0225 | | |
+| baseline (27) | 0.8167 | 0.8395 | 0.8276 ± 0.0290 | 0.9750 | -0.0253 (0/5 up) |
+| baseline + CNN | 0.8518 | 0.8586 | 0.8544 ± 0.0210 | 0.9817 | +0.0015 (2/5 up) |
+| + image (all) | 0.8460 | 0.8604 | 0.8529 ± 0.0262 | 0.9815 | +0.0000 (0/5 up) |
+| + image (all) + CNN | 0.8492 | 0.8704 | 0.8587 ± 0.0208 | 0.9833 | +0.0058 (4/5 up) |

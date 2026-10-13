@@ -28,5 +28,8 @@
         "std_f",
         "std_fcorr"
     ],
-    "custom_features": {}
+    "custom_features": {},
+    "trained": "2026-09-30",
+    "training_data": "Stav sessions only",
+    "idea": "Different data: 27 features trained only on Stav's labels, to compare against the Inbar-only model."
 }

@@ -1,0 +1,48 @@
+roi,label,p_trace_model,p_image_cnn,models_say,session_path
+1231,1,0.000,0.002,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+1314,1,0.006,0.003,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+1378,1,0.004,0.007,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+2059,1,0.011,0.000,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+2256,1,0.004,0.008,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+1043,1,0.008,0.008,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+1368,1,0.009,0.013,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+1417,1,0.001,0.025,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+1618,1,0.019,0.007,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+1903,1,0.027,0.005,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+723,1,0.018,0.018,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+1621,1,0.030,0.007,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+543,1,0.031,0.008,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+1345,1,0.013,0.027,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+1125,1,0.013,0.027,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+1218,1,0.038,0.009,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+1018,0,0.990,0.962,cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+1038,1,0.015,0.035,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+403,0,0.987,0.963,cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+1121,1,0.035,0.018,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+1851,1,0.051,0.002,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+1055,1,0.037,0.032,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+363,0,0.988,0.941,cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+1048,1,0.051,0.021,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+1020,1,0.010,0.062,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+2244,1,0.010,0.075,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+1187,1,0.071,0.018,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+507,0,0.966,0.939,cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+636,0,0.974,0.928,cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+205,0,0.984,0.917,cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+1695,1,0.096,0.008,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+1764,1,0.104,0.003,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+1213,1,0.025,0.084,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+726,1,0.062,0.047,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+1740,1,0.075,0.038,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+825,1,0.085,0.028,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+156,0,0.915,0.965,cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+1733,1,0.034,0.087,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+703,1,0.027,0.100,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+1327,1,0.100,0.032,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+350,0,0.981,0.876,cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+359,0,0.964,0.888,cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+1269,1,0.013,0.148,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+261,0,0.887,0.927,cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+934,1,0.144,0.045,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+476,0,0.931,0.875,cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19
+1215,1,0.079,0.131,not cell,/mnt/other_ubunthu/mnt/data/19-ordered/Stav19

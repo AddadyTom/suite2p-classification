@@ -1,0 +1,127 @@
+{
+    "name": "LightGBM 44 features (Inbar 7/8/11/12 held out)",
+    "description": "Baseline 27 features + 17 ops.npy image features, trained on 25 sessions. Leak-free CV F1 0.853 vs baseline 0.827.",
+    "active_features": [
+        "area_to_radius_sq",
+        "aspect_ratio",
+        "compact",
+        "corr_f_fneu",
+        "max_width",
+        "mrs",
+        "peak_to_q95_ratio",
+        "peak_to_q99_ratio",
+        "q10",
+        "q25",
+        "q50",
+        "q75",
+        "q90",
+        "q95",
+        "q99",
+        "radius",
+        "range_f",
+        "range_fcorr",
+        "skew_diff_fcorr",
+        "skew_f",
+        "skew_fcorr",
+        "skew_fneu",
+        "solidity",
+        "std_f",
+        "std_fcorr",
+        "mean_diff_f_fneu",
+        "range_ratio_f_fneu",
+        "meanImg_contrast_z",
+        "meanImgE_contrast_z",
+        "max_proj_contrast_z",
+        "Vcorr_contrast_z",
+        "meanImg_lam_corr",
+        "meanImgE_lam_corr",
+        "max_proj_lam_corr",
+        "Vcorr_lam_corr",
+        "meanImg_lam_corr_patch",
+        "meanImgE_lam_corr_patch",
+        "max_proj_lam_corr_patch",
+        "Vcorr_lam_corr_patch",
+        "meanImg_ratio",
+        "max_proj_ratio",
+        "Vcorr_in_mean",
+        "Vcorr_in_minus_ring",
+        "meanImg_neuropil_contrast"
+    ],
+    "custom_features": {},
+    "threshold": 0.7,
+    "threshold_source": "F1-optimal on 5-fold session-grouped out-of-fold predictions",
+    "n_estimators": 414,
+    "feature_code": "fe_engine.session_features.compute_session_features",
+    "requires_ops": true,
+    "min_ops_alignment": 0.15,
+    "fallback": "regular preset (models/suite2p_best_lgb.pkl) when ops.npy is missing or does not match stat.npy",
+    "trained": "2026-10-08",
+    "training_data": "25 sessions (all): Inbar10, Inbar2, Inbar3, Inbar5, Inbar6, Inbar9, Stav10, Stav11, Stav12, Stav13, Stav14, Stav16, Stav17, Stav18, Stav19, Stav20, Stav21, Stav4, Stav5, Stav6, Stav7, Stav8, Stav9, inbar1, inbar4; held out: Inbar7, Inbar8, Inbar11, Inbar12",
+    "idea": "Full 44-feature model on all Stav + Inbar1-6, 9-10; Stav22 and Inbar7/8/11/12 held out for scoring",
+    "training_pool": "all",
+    "excluded_sessions": [
+        "stav22",
+        "stav3/21",
+        "Inbar7",
+        "Inbar8",
+        "Inbar11",
+        "Inbar12"
+    ],
+    "training_sessions": [
+        "/mnt/other_ubunthu/mnt/data/1-ordered/inbar1",
+        "/mnt/other_ubunthu/mnt/data/10-ordered/Inbar10",
+        "/mnt/other_ubunthu/mnt/data/10-ordered/Stav10",
+        "/mnt/other_ubunthu/mnt/data/11-ordered/Stav11",
+        "/mnt/other_ubunthu/mnt/data/12-ordered/Stav12",
+        "/mnt/other_ubunthu/mnt/data/13-ordered/Stav13",
+        "/mnt/other_ubunthu/mnt/data/14-ordered/Stav14",
+        "/mnt/other_ubunthu/mnt/data/16-ordered/Stav16",
+        "/mnt/other_ubunthu/mnt/data/17-ordered/Stav17",
+        "/mnt/other_ubunthu/mnt/data/18-ordered/Stav18",
+        "/mnt/other_ubunthu/mnt/data/19-ordered/Stav19",
+        "/mnt/other_ubunthu/mnt/data/2-ordered/Inbar2",
+        "/mnt/other_ubunthu/mnt/data/20-ordered/Stav20",
+        "/mnt/other_ubunthu/mnt/data/21-ordered/Stav21",
+        "/mnt/other_ubunthu/mnt/data/3-ordered/Inbar3",
+        "/mnt/other_ubunthu/mnt/data/4-ordered/Stav4",
+        "/mnt/other_ubunthu/mnt/data/4-ordered/inbar4",
+        "/mnt/other_ubunthu/mnt/data/5-ordered/Inbar5",
+        "/mnt/other_ubunthu/mnt/data/5-ordered/Stav5",
+        "/mnt/other_ubunthu/mnt/data/6-ordered/Inbar6",
+        "/mnt/other_ubunthu/mnt/data/6-ordered/Stav6",
+        "/mnt/other_ubunthu/mnt/data/7-ordered/Stav7",
+        "/mnt/other_ubunthu/mnt/data/8-ordered/Stav8",
+        "/mnt/other_ubunthu/mnt/data/9-ordered/Inbar9",
+        "/mnt/other_ubunthu/mnt/data/9-ordered/Stav9"
+    ],
+    "cv_results": {
+        "baseline (27)": {
+            "P": {
+                "mean": 0.81302846432487,
+                "std": 0.029369979063623368
+            },
+            "R": {
+                "mean": 0.8462226903938638,
+                "std": 0.06365401397185376
+            },
+            "F1": {
+                "mean": 0.8271990532076358,
+                "std": 0.026755140791504855
+            }
+        },
+        "+ image (all)": {
+            "P": {
+                "mean": 0.8431415987924383,
+                "std": 0.02372307890766702
+            },
+            "R": {
+                "mean": 0.864860780051471,
+                "std": 0.04848127003973973
+            },
+            "F1": {
+                "mean": 0.8528509570323081,
+                "std": 0.0250665474400423
+            }
+        }
+    }
+}

@@ -479,14 +479,26 @@ def suppress_duplicate_rois(stat, probs, preds, F, dist_threshold=15.0, corr_thr
 # ==========================================
 # 2. INFERENCE LOGIC
 # ==========================================
-def run_ai_pipeline(session_path, model_spec=None, scaler_spec=None, save_iscell=True, custom_features=None):
+def run_ai_pipeline(session_path, model_spec=None, scaler_spec=None, save_iscell=True, custom_features=None,
+                    progress=None):
     """
     Unified single-source-of-truth inference pipeline for AI predictions on a Suite2p session.
     Used by both apply_AI.py CLI and investigate_cell.py Web UI.
+    progress(fraction, status), if given, is called as the steps advance (fraction 0-1).
     """
+    progress = progress or (lambda fraction, status: None)
     session_path = Path(session_path)
     base_dir = Path(__file__).parent.resolve()
+
+    if model_spec is not None and str(model_spec).lower() == 'image':
+        return run_image_pipeline(session_path, save_iscell=save_iscell, progress=progress)
+    # A model whose JSON says its features come from fe_engine.session_features (e.g. the
+    # image model picked by path in investigate_cell.py) must use that exact feature code
+    if model_spec is not None and _uses_session_features(Path(model_spec)):
+        return run_image_pipeline(session_path, save_iscell=save_iscell,
+                                  model_path=Path(model_spec), fallback=False, progress=progress)
     
+    progress(0.0, 'Computing features...')
     F = np.load(session_path / 'F.npy', mmap_mode='r')
     Fneu = np.load(session_path / 'Fneu.npy', mmap_mode='r')
     stat = np.load(session_path / 'stat.npy', allow_pickle=True)
@@ -634,6 +646,7 @@ def run_ai_pipeline(session_path, model_spec=None, scaler_spec=None, save_iscell
             if hasattr(scaler, 'transform'):
                 X_proc = scaler.transform(X)
 
+    progress(0.9, 'Predicting...')
     probs = model.predict_proba(X_proc)[:, 1]
 
     # Select optimal decision threshold based on feature layout
@@ -648,6 +661,23 @@ def run_ai_pipeline(session_path, model_spec=None, scaler_spec=None, save_iscell
     else:
         threshold = 0.66
 
+    progress(0.93, 'Removing duplicate ROIs and saving iscell.npy...' if save_iscell else 'Removing duplicate ROIs...')
+    is_cell, probs, num_suppressed = _finalize_predictions(
+        session_path, stat, F, probs, threshold, save_iscell, iscell_exists)
+
+    return {
+        'is_cell': is_cell,
+        'probs': probs,
+        'threshold': threshold,
+        'num_suppressed': num_suppressed,
+        'model_path': model_path,
+        'feature_names': feature_names,
+        'X_extracted': X
+    }
+
+def _finalize_predictions(session_path, stat, F, probs, threshold, save_iscell, iscell_exists):
+    """Threshold, duplicate-ROI suppression and (optionally) backup + overwrite of iscell.npy."""
+    iscell_path = session_path / 'iscell.npy'
     is_cell = np.zeros(len(probs))
     is_cell[probs >= threshold] = 1
 
@@ -665,13 +695,64 @@ def run_ai_pipeline(session_path, model_spec=None, scaler_spec=None, save_iscell
             if not backup_path.exists():
                 shutil.copy(iscell_path, backup_path)
                 print(f"Backed up original iscell.npy to: {backup_path.name}")
-        
+
         # Overwrite iscell.npy
         iscell_new = np.zeros((len(probs), 2))
         iscell_new[:, 0] = is_cell
         iscell_new[:, 1] = probs
         np.save(iscell_path, iscell_new)
         print(f"Saved predictions to {iscell_path.name} in session folder.")
+
+    return is_cell, probs, num_suppressed
+
+IMAGE_MODEL_PATH = Path(__file__).parent.resolve() / 'models' / 'image' / 'suite2p_image_lgb.pkl'
+SESSION_FEATURES_CODE = 'fe_engine.session_features.compute_session_features'
+
+def _uses_session_features(model_path):
+    meta_path = Path(model_path).with_suffix('.json')
+    if not meta_path.exists():
+        return False
+    try:
+        with open(meta_path, 'r') as f:
+            return json.load(f).get('feature_code') == SESSION_FEATURES_CODE
+    except Exception:
+        return False
+
+def run_image_pipeline(session_path, save_iscell=True, model_path=IMAGE_MODEL_PATH, fallback=True, progress=None):
+    """
+    'image' preset: baseline features + ops.npy image features, computed with the
+    exact training feature code (fe_engine.session_features). Threshold comes from
+    the model JSON. When ops.npy is missing or does not belong to this stat.npy,
+    falls back to the regular preset (fallback=True, CLI) or raises (fallback=False,
+    e.g. the dashboard, which needs the model's own feature layout).
+    """
+    from fe_engine.session_features import compute_session_features
+    session_path = Path(session_path)
+    model_path = Path(model_path)
+    with open(model_path.with_suffix('.json'), 'r') as f:
+        meta = json.load(f)
+    feature_names = meta['active_features']
+
+    progress = progress or (lambda fraction, status: None)
+    X, image_ok = compute_session_features(session_path, feature_names,
+                                           progress=lambda f, status: progress(0.9 * f, status))
+    if not image_ok:
+        if not fallback:
+            raise ValueError(f"{session_path}: ops.npy is missing or does not match stat.npy, so the image "
+                             f"model cannot be used for this session. Use the regular model instead.")
+        print("ops.npy is missing or does not match stat.npy: falling back to the regular model.")
+        return run_ai_pipeline(session_path, model_spec='regular', save_iscell=save_iscell, progress=progress)
+
+    progress(0.9, 'Predicting...')
+    model = joblib.load(model_path)
+    probs = model.predict_proba(X)[:, 1]
+    threshold = float(meta['threshold'])
+    progress(0.93, 'Removing duplicate ROIs and saving iscell.npy...' if save_iscell else 'Removing duplicate ROIs...')
+
+    F = np.load(session_path / 'F.npy', mmap_mode='r')
+    stat = np.load(session_path / 'stat.npy', allow_pickle=True)
+    is_cell, probs, num_suppressed = _finalize_predictions(
+        session_path, stat, F, probs, threshold, save_iscell, (session_path / 'iscell.npy').exists())
 
     return {
         'is_cell': is_cell,
@@ -709,7 +790,7 @@ def apply_active_learning(session_path, model_spec=None):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python apply_AI.py <path_to_suite2p_session_folder> [model_path]")
+        print("Usage: python apply_AI.py <path_to_suite2p_session_folder> [model_path | regular | image]")
     else:
         model_choice = sys.argv[2] if len(sys.argv) > 2 else None
         apply_active_learning(sys.argv[1], model_choice)

@@ -22,5 +22,8 @@
         "std_f",
         "std_fcorr"
     ],
-    "custom_features": {}
+    "custom_features": {},
+    "trained": "2026-09-29",
+    "training_data": "All labelled sessions in the preprocessed cache at the time (Stav + Inbar), excluding Yael, Stav3/21 and Stav22 (held out)",
+    "idea": "Fewer features: only the 19 fluorescence-trace statistics, no shape. Tests how far the activity trace alone goes."
 }

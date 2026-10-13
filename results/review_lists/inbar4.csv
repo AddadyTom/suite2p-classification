@@ -1,0 +1,29 @@
+roi,label,p_trace_model,p_image_cnn,models_say,session_path
+2178,1,0.032,0.003,not cell,/mnt/other_ubunthu/mnt/data/4-ordered/inbar4
+374,0,0.972,0.993,cell,/mnt/other_ubunthu/mnt/data/4-ordered/inbar4
+762,0,0.975,0.987,cell,/mnt/other_ubunthu/mnt/data/4-ordered/inbar4
+339,0,0.982,0.966,cell,/mnt/other_ubunthu/mnt/data/4-ordered/inbar4
+657,1,0.001,0.053,not cell,/mnt/other_ubunthu/mnt/data/4-ordered/inbar4
+955,0,0.984,0.956,cell,/mnt/other_ubunthu/mnt/data/4-ordered/inbar4
+795,0,0.965,0.973,cell,/mnt/other_ubunthu/mnt/data/4-ordered/inbar4
+2212,0,0.949,0.985,cell,/mnt/other_ubunthu/mnt/data/4-ordered/inbar4
+313,0,0.953,0.978,cell,/mnt/other_ubunthu/mnt/data/4-ordered/inbar4
+957,0,0.967,0.962,cell,/mnt/other_ubunthu/mnt/data/4-ordered/inbar4
+2764,1,0.072,0.004,not cell,/mnt/other_ubunthu/mnt/data/4-ordered/inbar4
+180,0,0.933,0.984,cell,/mnt/other_ubunthu/mnt/data/4-ordered/inbar4
+768,1,0.047,0.038,not cell,/mnt/other_ubunthu/mnt/data/4-ordered/inbar4
+792,1,0.015,0.095,not cell,/mnt/other_ubunthu/mnt/data/4-ordered/inbar4
+1260,1,0.048,0.092,not cell,/mnt/other_ubunthu/mnt/data/4-ordered/inbar4
+606,0,0.925,0.928,cell,/mnt/other_ubunthu/mnt/data/4-ordered/inbar4
+502,1,0.090,0.067,not cell,/mnt/other_ubunthu/mnt/data/4-ordered/inbar4
+132,0,0.886,0.956,cell,/mnt/other_ubunthu/mnt/data/4-ordered/inbar4
+303,0,0.895,0.933,cell,/mnt/other_ubunthu/mnt/data/4-ordered/inbar4
+810,0,0.920,0.903,cell,/mnt/other_ubunthu/mnt/data/4-ordered/inbar4
+473,0,0.891,0.929,cell,/mnt/other_ubunthu/mnt/data/4-ordered/inbar4
+610,0,0.894,0.921,cell,/mnt/other_ubunthu/mnt/data/4-ordered/inbar4
+920,0,0.901,0.894,cell,/mnt/other_ubunthu/mnt/data/4-ordered/inbar4
+1157,0,0.929,0.865,cell,/mnt/other_ubunthu/mnt/data/4-ordered/inbar4
+206,0,0.904,0.866,cell,/mnt/other_ubunthu/mnt/data/4-ordered/inbar4
+448,0,0.914,0.855,cell,/mnt/other_ubunthu/mnt/data/4-ordered/inbar4
+678,0,0.867,0.899,cell,/mnt/other_ubunthu/mnt/data/4-ordered/inbar4
+883,0,0.872,0.862,cell,/mnt/other_ubunthu/mnt/data/4-ordered/inbar4

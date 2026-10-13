@@ -30,5 +30,8 @@
         "range_ratio_f_fneu",
         "mean_diff_f_fneu"
     ],
-    "custom_features": {}
+    "custom_features": {},
+    "trained": "2026-09-29",
+    "training_data": "Inbar sessions 1-10 only",
+    "idea": "Different data: 27 features trained only on Inbar's labels, to see whether a per-labeller model fits Inbar's data better."
 }

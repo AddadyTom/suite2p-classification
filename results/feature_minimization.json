@@ -1,0 +1,710 @@
+{
+ "trace_features": [
+  "corr_f_fneu",
+  "max_width",
+  "peak_to_q95_ratio",
+  "peak_to_q99_ratio",
+  "q10",
+  "q25",
+  "q50",
+  "q75",
+  "q90",
+  "q95",
+  "q99",
+  "range_f",
+  "range_fcorr",
+  "skew_diff_fcorr",
+  "skew_f",
+  "skew_fcorr",
+  "skew_fneu",
+  "std_f",
+  "std_fcorr",
+  "mean_diff_f_fneu",
+  "range_ratio_f_fneu"
+ ],
+ "steps": [
+  {
+   "n_features": 44,
+   "f1_mean": 0.8513306657108387,
+   "f1_std": 0.02460669190962432,
+   "delta_vs_full": 0.0,
+   "folds_down": 0,
+   "kept_removable": [
+    "area_to_radius_sq",
+    "aspect_ratio",
+    "compact",
+    "mrs",
+    "radius",
+    "solidity",
+    "meanImg_contrast_z",
+    "meanImgE_contrast_z",
+    "max_proj_contrast_z",
+    "Vcorr_contrast_z",
+    "meanImg_lam_corr",
+    "meanImgE_lam_corr",
+    "max_proj_lam_corr",
+    "Vcorr_lam_corr",
+    "meanImg_lam_corr_patch",
+    "meanImgE_lam_corr_patch",
+    "max_proj_lam_corr_patch",
+    "Vcorr_lam_corr_patch",
+    "meanImg_ratio",
+    "max_proj_ratio",
+    "Vcorr_in_mean",
+    "Vcorr_in_minus_ring",
+    "meanImg_neuropil_contrast"
+   ],
+   "next_drop": "Vcorr_lam_corr_patch",
+   "f1_folds": [
+    0.8766990291262136,
+    0.8096597145993414,
+    0.8401898734177216,
+    0.8736179146256123,
+    0.8564867967853043
+   ]
+  },
+  {
+   "n_features": 43,
+   "f1_mean": 0.8503923189385004,
+   "f1_std": 0.022673470327783024,
+   "delta_vs_full": -0.0009383467723382388,
+   "folds_down": 3,
+   "kept_removable": [
+    "area_to_radius_sq",
+    "aspect_ratio",
+    "compact",
+    "mrs",
+    "radius",
+    "solidity",
+    "meanImg_contrast_z",
+    "meanImgE_contrast_z",
+    "max_proj_contrast_z",
+    "Vcorr_contrast_z",
+    "meanImg_lam_corr",
+    "meanImgE_lam_corr",
+    "max_proj_lam_corr",
+    "Vcorr_lam_corr",
+    "meanImg_lam_corr_patch",
+    "meanImgE_lam_corr_patch",
+    "max_proj_lam_corr_patch",
+    "meanImg_ratio",
+    "max_proj_ratio",
+    "Vcorr_in_mean",
+    "Vcorr_in_minus_ring",
+    "meanImg_neuropil_contrast"
+   ],
+   "next_drop": "area_to_radius_sq",
+   "f1_folds": [
+    0.8744446272831989,
+    0.8162393162393162,
+    0.8354529959354924,
+    0.8749290981281905,
+    0.8508955571063038
+   ]
+  },
+  {
+   "n_features": 42,
+   "f1_mean": 0.8519207707187896,
+   "f1_std": 0.022538871914779435,
+   "delta_vs_full": 0.0005901050079509362,
+   "folds_down": 3,
+   "kept_removable": [
+    "aspect_ratio",
+    "compact",
+    "mrs",
+    "radius",
+    "solidity",
+    "meanImg_contrast_z",
+    "meanImgE_contrast_z",
+    "max_proj_contrast_z",
+    "Vcorr_contrast_z",
+    "meanImg_lam_corr",
+    "meanImgE_lam_corr",
+    "max_proj_lam_corr",
+    "Vcorr_lam_corr",
+    "meanImg_lam_corr_patch",
+    "meanImgE_lam_corr_patch",
+    "max_proj_lam_corr_patch",
+    "meanImg_ratio",
+    "max_proj_ratio",
+    "Vcorr_in_mean",
+    "Vcorr_in_minus_ring",
+    "meanImg_neuropil_contrast"
+   ],
+   "next_drop": "meanImg_contrast_z",
+   "f1_folds": [
+    0.8761250204549174,
+    0.8163702592671952,
+    0.839217745110907,
+    0.8748945740792803,
+    0.852996254681648
+   ]
+  },
+  {
+   "n_features": 41,
+   "f1_mean": 0.8522886929662379,
+   "f1_std": 0.024744511892111333,
+   "delta_vs_full": 0.0009580272553992408,
+   "folds_down": 1,
+   "kept_removable": [
+    "aspect_ratio",
+    "compact",
+    "mrs",
+    "radius",
+    "solidity",
+    "meanImgE_contrast_z",
+    "max_proj_contrast_z",
+    "Vcorr_contrast_z",
+    "meanImg_lam_corr",
+    "meanImgE_lam_corr",
+    "max_proj_lam_corr",
+    "Vcorr_lam_corr",
+    "meanImg_lam_corr_patch",
+    "meanImgE_lam_corr_patch",
+    "max_proj_lam_corr_patch",
+    "meanImg_ratio",
+    "max_proj_ratio",
+    "Vcorr_in_mean",
+    "Vcorr_in_minus_ring",
+    "meanImg_neuropil_contrast"
+   ],
+   "next_drop": "Vcorr_contrast_z",
+   "f1_folds": [
+    0.87741091860085,
+    0.809732573432705,
+    0.8453828678337565,
+    0.876193189913093,
+    0.8527239150507848
+   ]
+  },
+  {
+   "n_features": 40,
+   "f1_mean": 0.8510581328615231,
+   "f1_std": 0.02376604046282967,
+   "delta_vs_full": -0.00027253284931541,
+   "folds_down": 2,
+   "kept_removable": [
+    "aspect_ratio",
+    "compact",
+    "mrs",
+    "radius",
+    "solidity",
+    "meanImgE_contrast_z",
+    "max_proj_contrast_z",
+    "meanImg_lam_corr",
+    "meanImgE_lam_corr",
+    "max_proj_lam_corr",
+    "Vcorr_lam_corr",
+    "meanImg_lam_corr_patch",
+    "meanImgE_lam_corr_patch",
+    "max_proj_lam_corr_patch",
+    "meanImg_ratio",
+    "max_proj_ratio",
+    "Vcorr_in_mean",
+    "Vcorr_in_minus_ring",
+    "meanImg_neuropil_contrast"
+   ],
+   "next_drop": "meanImgE_contrast_z",
+   "f1_folds": [
+    0.8761091028590207,
+    0.8117136659436008,
+    0.8424966799468792,
+    0.8750178138805758,
+    0.8499534016775396
+   ]
+  },
+  {
+   "n_features": 39,
+   "f1_mean": 0.8516497792720562,
+   "f1_std": 0.022724061922346817,
+   "delta_vs_full": 0.0003191135612175433,
+   "folds_down": 3,
+   "kept_removable": [
+    "aspect_ratio",
+    "compact",
+    "mrs",
+    "radius",
+    "solidity",
+    "max_proj_contrast_z",
+    "meanImg_lam_corr",
+    "meanImgE_lam_corr",
+    "max_proj_lam_corr",
+    "Vcorr_lam_corr",
+    "meanImg_lam_corr_patch",
+    "meanImgE_lam_corr_patch",
+    "max_proj_lam_corr_patch",
+    "meanImg_ratio",
+    "max_proj_ratio",
+    "Vcorr_in_mean",
+    "Vcorr_in_minus_ring",
+    "meanImg_neuropil_contrast"
+   ],
+   "next_drop": "aspect_ratio",
+   "f1_folds": [
+    0.8748196826414489,
+    0.8149589277993947,
+    0.8398887564560985,
+    0.8752666761484853,
+    0.8533148533148533
+   ]
+  },
+  {
+   "n_features": 38,
+   "f1_mean": 0.8521998691651861,
+   "f1_std": 0.022906497388909413,
+   "delta_vs_full": 0.0008692034543475336,
+   "folds_down": 3,
+   "kept_removable": [
+    "compact",
+    "mrs",
+    "radius",
+    "solidity",
+    "max_proj_contrast_z",
+    "meanImg_lam_corr",
+    "meanImgE_lam_corr",
+    "max_proj_lam_corr",
+    "Vcorr_lam_corr",
+    "meanImg_lam_corr_patch",
+    "meanImgE_lam_corr_patch",
+    "max_proj_lam_corr_patch",
+    "meanImg_ratio",
+    "max_proj_ratio",
+    "Vcorr_in_mean",
+    "Vcorr_in_minus_ring",
+    "meanImg_neuropil_contrast"
+   ],
+   "next_drop": "max_proj_lam_corr_patch",
+   "f1_folds": [
+    0.8762638420799229,
+    0.8160993363305502,
+    0.8397512240307,
+    0.876410835214447,
+    0.8524741081703107
+   ]
+  },
+  {
+   "n_features": 37,
+   "f1_mean": 0.8509494799821049,
+   "f1_std": 0.02469007905195597,
+   "delta_vs_full": -0.00038118572873375723,
+   "folds_down": 1,
+   "kept_removable": [
+    "compact",
+    "mrs",
+    "radius",
+    "solidity",
+    "max_proj_contrast_z",
+    "meanImg_lam_corr",
+    "meanImgE_lam_corr",
+    "max_proj_lam_corr",
+    "Vcorr_lam_corr",
+    "meanImg_lam_corr_patch",
+    "meanImgE_lam_corr_patch",
+    "meanImg_ratio",
+    "max_proj_ratio",
+    "Vcorr_in_mean",
+    "Vcorr_in_minus_ring",
+    "meanImg_neuropil_contrast"
+   ],
+   "next_drop": "Vcorr_lam_corr",
+   "f1_folds": [
+    0.8780487804878049,
+    0.8102475032566218,
+    0.8423985141947467,
+    0.8750352609308886,
+    0.8490173410404624
+   ]
+  },
+  {
+   "n_features": 36,
+   "f1_mean": 0.8503716672917522,
+   "f1_std": 0.025137216354689976,
+   "delta_vs_full": -0.0009589984190865319,
+   "folds_down": 2,
+   "kept_removable": [
+    "compact",
+    "mrs",
+    "radius",
+    "solidity",
+    "max_proj_contrast_z",
+    "meanImg_lam_corr",
+    "meanImgE_lam_corr",
+    "max_proj_lam_corr",
+    "meanImg_lam_corr_patch",
+    "meanImgE_lam_corr_patch",
+    "meanImg_ratio",
+    "max_proj_ratio",
+    "Vcorr_in_mean",
+    "Vcorr_in_minus_ring",
+    "meanImg_neuropil_contrast"
+   ],
+   "next_drop": "max_proj_contrast_z",
+   "f1_folds": [
+    0.8782370918449413,
+    0.811945466349275,
+    0.8340525696351511,
+    0.8756176761259353,
+    0.8520055325034578
+   ]
+  },
+  {
+   "n_features": 35,
+   "f1_mean": 0.8512612397860702,
+   "f1_std": 0.025175167102667383,
+   "delta_vs_full": -6.942592476850695e-05,
+   "folds_down": 3,
+   "kept_removable": [
+    "compact",
+    "mrs",
+    "radius",
+    "solidity",
+    "meanImg_lam_corr",
+    "meanImgE_lam_corr",
+    "max_proj_lam_corr",
+    "meanImg_lam_corr_patch",
+    "meanImgE_lam_corr_patch",
+    "meanImg_ratio",
+    "max_proj_ratio",
+    "Vcorr_in_mean",
+    "Vcorr_in_minus_ring",
+    "meanImg_neuropil_contrast"
+   ],
+   "next_drop": "meanImg_lam_corr_patch",
+   "f1_folds": [
+    0.8761716822890971,
+    0.8081863705639016,
+    0.845617796837309,
+    0.8769077164455855,
+    0.8494226327944573
+   ]
+  },
+  {
+   "n_features": 34,
+   "f1_mean": 0.8513033198954026,
+   "f1_std": 0.02444554277462426,
+   "delta_vs_full": -2.7345815435997344e-05,
+   "folds_down": 2,
+   "kept_removable": [
+    "compact",
+    "mrs",
+    "radius",
+    "solidity",
+    "meanImg_lam_corr",
+    "meanImgE_lam_corr",
+    "max_proj_lam_corr",
+    "meanImgE_lam_corr_patch",
+    "meanImg_ratio",
+    "max_proj_ratio",
+    "Vcorr_in_mean",
+    "Vcorr_in_minus_ring",
+    "meanImg_neuropil_contrast"
+   ],
+   "next_drop": "meanImg_lam_corr",
+   "f1_folds": [
+    0.8760330578512396,
+    0.8115501519756839,
+    0.8403693931398417,
+    0.8773128380301737,
+    0.8512511584800742
+   ]
+  },
+  {
+   "n_features": 33,
+   "f1_mean": 0.8513169591142393,
+   "f1_std": 0.024699913392933443,
+   "delta_vs_full": -1.3706596599316611e-05,
+   "folds_down": 3,
+   "kept_removable": [
+    "compact",
+    "mrs",
+    "radius",
+    "solidity",
+    "meanImgE_lam_corr",
+    "max_proj_lam_corr",
+    "meanImgE_lam_corr_patch",
+    "meanImg_ratio",
+    "max_proj_ratio",
+    "Vcorr_in_mean",
+    "Vcorr_in_minus_ring",
+    "meanImg_neuropil_contrast"
+   ],
+   "next_drop": "meanImg_ratio",
+   "f1_folds": [
+    0.8768877216021012,
+    0.80692526846373,
+    0.8483283500951345,
+    0.8716870004206984,
+    0.8527564549895325
+   ]
+  },
+  {
+   "n_features": 32,
+   "f1_mean": 0.8521966096384604,
+   "f1_std": 0.023146912684222695,
+   "delta_vs_full": 0.0008659439276218261,
+   "folds_down": 1,
+   "kept_removable": [
+    "compact",
+    "mrs",
+    "radius",
+    "solidity",
+    "meanImgE_lam_corr",
+    "max_proj_lam_corr",
+    "meanImgE_lam_corr_patch",
+    "max_proj_ratio",
+    "Vcorr_in_mean",
+    "Vcorr_in_minus_ring",
+    "meanImg_neuropil_contrast"
+   ],
+   "next_drop": "Vcorr_in_minus_ring",
+   "f1_folds": [
+    0.8771758581421831,
+    0.8136962994470438,
+    0.8450817475207719,
+    0.8749467707594039,
+    0.8500823723228995
+   ]
+  },
+  {
+   "n_features": 31,
+   "f1_mean": 0.8484883821636611,
+   "f1_std": 0.021251046623125058,
+   "delta_vs_full": -0.0028422835471774823,
+   "folds_down": 4,
+   "kept_removable": [
+    "compact",
+    "mrs",
+    "radius",
+    "solidity",
+    "meanImgE_lam_corr",
+    "max_proj_lam_corr",
+    "meanImgE_lam_corr_patch",
+    "max_proj_ratio",
+    "Vcorr_in_mean",
+    "meanImg_neuropil_contrast"
+   ],
+   "next_drop": "solidity",
+   "f1_folds": [
+    0.8719354838709678,
+    0.8163702592671952,
+    0.8349056603773585,
+    0.8706739526411658,
+    0.8485565546616185
+   ]
+  },
+  {
+   "n_features": 30,
+   "f1_mean": 0.8508175352851921,
+   "f1_std": 0.02306839454692363,
+   "delta_vs_full": -0.0005131304256464242,
+   "folds_down": 3,
+   "kept_removable": [
+    "compact",
+    "mrs",
+    "radius",
+    "meanImgE_lam_corr",
+    "max_proj_lam_corr",
+    "meanImgE_lam_corr_patch",
+    "max_proj_ratio",
+    "Vcorr_in_mean",
+    "meanImg_neuropil_contrast"
+   ],
+   "next_drop": "meanImgE_lam_corr",
+   "f1_folds": [
+    0.8760276224926011,
+    0.8119148936170213,
+    0.8480536912751678,
+    0.8726241134751773,
+    0.8454673555659934
+   ]
+  },
+  {
+   "n_features": 29,
+   "f1_mean": 0.8487878326356849,
+   "f1_std": 0.022050972157841756,
+   "delta_vs_full": -0.0025428330751537053,
+   "folds_down": 3,
+   "kept_removable": [
+    "compact",
+    "mrs",
+    "radius",
+    "max_proj_lam_corr",
+    "meanImgE_lam_corr_patch",
+    "max_proj_ratio",
+    "Vcorr_in_mean",
+    "meanImg_neuropil_contrast"
+   ],
+   "next_drop": "max_proj_ratio",
+   "f1_folds": [
+    0.8722721437740694,
+    0.8101761252446184,
+    0.8448783097084782,
+    0.8681135225375626,
+    0.8484990619136961
+   ]
+  },
+  {
+   "n_features": 28,
+   "f1_mean": 0.850165219484613,
+   "f1_std": 0.02291163720628416,
+   "delta_vs_full": -0.0011654462262255861,
+   "folds_down": 3,
+   "kept_removable": [
+    "compact",
+    "mrs",
+    "radius",
+    "max_proj_lam_corr",
+    "meanImgE_lam_corr_patch",
+    "Vcorr_in_mean",
+    "meanImg_neuropil_contrast"
+   ],
+   "next_drop": "radius",
+   "f1_folds": [
+    0.875365141187926,
+    0.8129280821917808,
+    0.8413333333333334,
+    0.8729956009649497,
+    0.8482039397450754
+   ]
+  },
+  {
+   "n_features": 27,
+   "f1_mean": 0.8470274196275354,
+   "f1_std": 0.02219027817766379,
+   "delta_vs_full": -0.0043032460833032134,
+   "folds_down": 4,
+   "kept_removable": [
+    "compact",
+    "mrs",
+    "max_proj_lam_corr",
+    "meanImgE_lam_corr_patch",
+    "Vcorr_in_mean",
+    "meanImg_neuropil_contrast"
+   ],
+   "next_drop": "compact",
+   "f1_folds": [
+    0.8704799474030244,
+    0.8084274543874891,
+    0.8408728046833422,
+    0.8665468123357766,
+    0.8488100793280448
+   ]
+  },
+  {
+   "n_features": 26,
+   "f1_mean": 0.8411651470933762,
+   "f1_std": 0.022406314491636218,
+   "delta_vs_full": -0.010165518617462422,
+   "folds_down": 4,
+   "kept_removable": [
+    "mrs",
+    "max_proj_lam_corr",
+    "meanImgE_lam_corr_patch",
+    "Vcorr_in_mean",
+    "meanImg_neuropil_contrast"
+   ],
+   "next_drop": "meanImg_neuropil_contrast",
+   "f1_folds": [
+    0.8648469809760132,
+    0.8026402640264027,
+    0.8445964432284542,
+    0.8608053504249686,
+    0.8329366968110423
+   ]
+  },
+  {
+   "n_features": 25,
+   "f1_mean": 0.8405647720158139,
+   "f1_std": 0.020536347212919078,
+   "delta_vs_full": -0.01076589369502463,
+   "folds_down": 4,
+   "kept_removable": [
+    "mrs",
+    "max_proj_lam_corr",
+    "meanImgE_lam_corr_patch",
+    "Vcorr_in_mean"
+   ],
+   "next_drop": "meanImgE_lam_corr_patch",
+   "f1_folds": [
+    0.8627322045043564,
+    0.804851157662624,
+    0.8411088573360379,
+    0.8584022038567493,
+    0.8357294367193023
+   ]
+  },
+  {
+   "n_features": 24,
+   "f1_mean": 0.8328486823103344,
+   "f1_std": 0.02160859548417257,
+   "delta_vs_full": -0.01848198340050413,
+   "folds_down": 5,
+   "kept_removable": [
+    "mrs",
+    "max_proj_lam_corr",
+    "Vcorr_in_mean"
+   ],
+   "next_drop": "Vcorr_in_mean",
+   "f1_folds": [
+    0.8588158750813273,
+    0.7992065241348909,
+    0.828385035281587,
+    0.8536653609401231,
+    0.8241706161137441
+   ]
+  },
+  {
+   "n_features": 23,
+   "f1_mean": 0.8280962822062385,
+   "f1_std": 0.025031194722598273,
+   "delta_vs_full": -0.023234383504599988,
+   "folds_down": 5,
+   "kept_removable": [
+    "mrs",
+    "max_proj_lam_corr"
+   ],
+   "next_drop": "mrs",
+   "f1_folds": [
+    0.8545633617859488,
+    0.7848605577689243,
+    0.8313351498637602,
+    0.8500426015336552,
+    0.8196797400789047
+   ]
+  },
+  {
+   "n_features": 22,
+   "f1_mean": 0.7981021977487578,
+   "f1_std": 0.02465884600312384,
+   "delta_vs_full": -0.05322846796208085,
+   "folds_down": 5,
+   "kept_removable": [
+    "max_proj_lam_corr"
+   ],
+   "next_drop": "max_proj_lam_corr",
+   "f1_folds": [
+    0.8203432530310187,
+    0.7606966243818534,
+    0.8033957687643175,
+    0.826164628280885,
+    0.7799107142857142
+   ]
+  },
+  {
+   "n_features": 21,
+   "f1_mean": 0.7753182446391492,
+   "f1_std": 0.03210970285692702,
+   "delta_vs_full": -0.0760124210716894,
+   "folds_down": 5,
+   "kept_removable": [],
+   "next_drop": null,
+   "f1_folds": [
+    0.8081936685288641,
+    0.7277789676590276,
+    0.7733780472075326,
+    0.812540653050605,
+    0.7546998867497169
+   ]
+  }
+ ]
+}

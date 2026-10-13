@@ -77,6 +77,9 @@ def train_and_save(output_path=None, model_name=None, description=None, features
         if 'yael' in name or 'yael' in path:
             print(f" Skipping Yael session: {s.get('session_name')}")
             continue
+        if 'stav3/21' in path:
+            print(f" Skipping Stav3/21 session (suspect labels, 70% positive): {s.get('session_name')}")
+            continue
         if 'stav22' in name or 'stav22' in path:
             print(f" Skipping Stav22 session (held out for validation): {s.get('session_name')}")
             continue
@@ -88,18 +91,16 @@ def train_and_save(output_path=None, model_name=None, description=None, features
     valid_sessions = []
     for s in target_sessions:
         session_path = Path(s['session_path'].item() if isinstance(s['session_path'], np.ndarray) else s['session_path'])
-        iscell_backup = session_path / "iscell_backup_before_AI.npy"
-        iscell_file = session_path / "iscell.npy"
-        
-        if iscell_backup.exists():
-            print(f"Loading GT from iscell_backup_before_AI.npy for {s['session_name']}")
-            gt = np.load(iscell_backup)
-            s['y'] = gt[:, 0]
-            valid_sessions.append(s)
-        elif iscell_file.exists():
-            print(f"Loading GT from iscell.npy for {s['session_name']}")
-            gt = np.load(iscell_file)
-            s['y'] = gt[:, 0]
+        # Label priority: curated final > pre-AI backup > iscell.npy (only trusted
+        # when apply_AI.py never overwrote it, i.e. no backup exists)
+        for gt_name in ["iscell_final.npy", "iscell_backup_before_AI.npy", "iscell.npy"]:
+            if (session_path / gt_name).exists():
+                break
+        else:
+            gt_name = None
+        if gt_name:
+            print(f"Loading GT from {gt_name} for {s['session_name']}")
+            s['y'] = np.load(session_path / gt_name)[:, 0]
             valid_sessions.append(s)
         else:
             print(f"Skipping {s['session_name']}: No ground truth file found (missing iscell.npy and backup).")
