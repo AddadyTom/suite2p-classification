@@ -41,6 +41,8 @@ def main():
     ap.add_argument('--name', default=None)
     ap.add_argument('--description', default=None)
     ap.add_argument('--idea', default=None, help="one-line idea shown in the dashboard tooltip")
+    ap.add_argument('--threshold', type=float, default=None,
+                    help="fixed decision threshold to store instead of the inner-CV F1-optimal one")
     args = ap.parse_args()
     features = args.features.split(',') if args.features else FEATURES
 
@@ -60,6 +62,9 @@ def main():
     print(f"Training on {len(sessions)} sessions ({args.pool}), {len(y)} ROIs, {len(features)} features")
 
     model, thr, n_iter = fit_nested(X, y, g, n_inner=args.inner)
+    cv_thr = thr
+    if args.threshold is not None:
+        thr = args.threshold
     joblib.dump(model, out)
 
     cv = {}
@@ -77,7 +82,8 @@ def main():
         'active_features': features,
         'custom_features': {},
         'threshold': thr,
-        'threshold_source': f'F1-optimal on {args.inner}-fold session-grouped out-of-fold predictions',
+        'threshold_source': (f'fixed by the user (inner-CV F1-optimal would be {cv_thr:.2f})' if args.threshold is not None
+                             else f'F1-optimal on {args.inner}-fold session-grouped out-of-fold predictions'),
         'n_estimators': n_iter,
         'feature_code': 'fe_engine.session_features.compute_session_features',
         'requires_ops': True,
