@@ -31,3 +31,30 @@ Reading: the Inbar-only model beats the Stav-only model on Inbar5 (+0.016) and I
 Inbar8, Inbar11 and Inbar12, where it was trained on only 8 Inbar sessions. Together with
 results/labeller_experiments.md: Stav's labels are consistently best predicted by Stav training; for Inbar the
 own-lab advantage appears on some sessions and is outweighed elsewhere by the smaller training set.
+
+# 31-feature models (32 minus radius; see exp/no-shape results/shape_variants.md)
+
+Feature list: results/small_model_features.json.
+
+## Inbar5 held out (models/demo_inbar5/*31*)
+
+| Model | thr | Inbar5 precision | recall | F1 | best F1 (thr) | AUC |
+|---|---|---|---|---|---|---|
+| small31 (both labs) | 0.59 | 0.744 | 0.889 | 0.810 | 0.828 (0.72) | 0.982 |
+| stav_only31 | 0.64 | 0.769 | 0.864 | 0.814 | 0.816 (0.59) | 0.981 |
+| inbar_only31 | 0.69 | 0.766 | 0.878 | 0.818 | 0.831 (0.82) | 0.984 |
+
+## Stav22 + Inbar7/8/11/12 held out (models/demo_inbar7_8_11_12/*31*)
+
+| Held-out session | small32 | **small31** | stav_only31 | inbar_only31 |
+|---|---|---|---|---|
+| stav22 | 0.802 | 0.823 | 0.810 | 0.785 |
+| Inbar7 | 0.907 | 0.906 | 0.885 | 0.902 |
+| Inbar8 | 0.880 | 0.890 | 0.878 | 0.877 |
+| Inbar11 | 0.806 | 0.832 | 0.786 | 0.748 |
+| Inbar12 | 0.749 | 0.774 | 0.760 | 0.733 |
+| pooled | 0.828 | **0.844** | 0.826 | 0.811 |
+
+Small model: 31 features beats 32 on the 5-session hold-out (+0.016 pooled F1; better or equal on every session but
+Inbar7) and is about equal on Inbar5 (0.810 vs 0.817 at its stored threshold, 0.828 vs 0.820 at the best threshold).
+Labeller demo on Inbar5 is weaker with 31 features (Inbar-only +0.004 over Stav-only, vs +0.016 with 32).
