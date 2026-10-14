@@ -4792,7 +4792,10 @@ def run_server(port=5000):
     
     default_model = None
     best_model_path = "models/suite2p_best_lgb.pkl"
-    if (dir_path / best_model_path).exists():
+    final_model_path = "models/final/suite2p_final31_lgb.pkl"  # recommended model (31 features, threshold 0.70)
+    if (dir_path / final_model_path).exists():
+        default_model = final_model_path
+    elif (dir_path / best_model_path).exists():
         default_model = best_model_path
     elif "suite2p_best_lgb.pkl" in [Path(m).name for m in models]:
         for m in models:

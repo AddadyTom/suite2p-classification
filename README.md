@@ -145,15 +145,30 @@ PYTHONPATH=. .venv/bin/python scripts/evaluate_cv.py --tables feature_tables --o
 * Image features (`fe_engine/image_features.py`) need `ops.npy` matching `stat.npy`; sessions failing the alignment check get NaN image features and fall back to the trace/morphology model.
 * Results: `results/REPORT.md`, `results/cv_table.md`, `results/cv_results.json`.
 
-### Image-feature model (`image` preset)
+### Recommended model: `models/final/suite2p_final31_lgb.pkl` (`image` preset)
 ```bash
-python apply_AI.py /path/to/suite2p/plane0 image     # baseline + ops.npy image features
-python apply_AI.py /path/to/suite2p/plane0           # regular (default) model, unchanged
+python apply_AI.py /path/to/suite2p/plane0 image     # final model: 31 features incl. ops.npy image features
+python apply_AI.py /path/to/suite2p/plane0           # previous 27-feature model, unchanged
 ```
-In the dashboard, pick **"[44 Features] LightGBM + image features"** in the model list, or start it directly:
+The dashboard loads the final model by default (**"Final LightGBM, 31 features (threshold 0.70)"** in the model list):
 ```bash
-PYTHONPATH=. .venv/bin/python investigate_cell.py --port 5000 --session /path/to/suite2p/plane0 --model models/image/suite2p_image_lgb.pkl
+PYTHONPATH=. .venv/bin/python investigate_cell.py --port 5000 --session /path/to/suite2p/plane0
 ```
-The threshold slider starts at the model's tuned threshold (0.65), and every image feature has an explanation in the attribution table. Note: **Apply Settings** writes the model's predictions to `iscell.npy` in the session folder (backing up the original to `iscell_backup_before_AI.npy` first), like `apply_AI.py`. The session needs an `ops.npy` that belongs to its `stat.npy`; otherwise the dashboard says so, and you should use a regular model for that session.
+* **Features (31):** the 21 trace features, compact / mrs / solidity, and 7 image features from the Suite2p summary images
+  (max_proj_lam_corr, Vcorr_in_mean, meanImg_neuropil_contrast, meanImgE_lam_corr, meanImgE_lam_corr_patch,
+  max_proj_ratio, Vcorr_in_minus_ring). ROI size (radius) is deliberately left out: it penalised small active cells
+  without improving accuracy (`exp/no-shape`).
+* **Training data:** all 29 clean sessions from 16 mice (Stav4-14, Stav16-21, Inbar1-12); Yael, Stav3/21 and stav22
+  and the duplicate folders Stav1 / Stav2 / Inbar15 are excluded.
+* **Threshold:** 0.70 (fixed; the dashboard slider starts there).
+* **Expected on a new animal** (mouse-grouped CV, `results/mouse_cv.md`): precision 0.845, recall 0.858, F1 0.850,
+  vs 0.824 for the previous 27-feature model.
 
-`models/image/suite2p_image_lgb.pkl` (+ `.json` with features, threshold 0.65 and CV results) is trained by `scripts/train_image_model.py` on the 29 clean sessions. Leak-free CV F1 is 0.853 vs 0.827 for the 27-feature baseline. Features are computed with the training code (`fe_engine/session_features.py`), so no preprocessed_cache entry is needed. When `ops.npy` is missing or doesn't match `stat.npy`, it falls back to the regular model.
+Every image feature has an explanation in the dashboard's attribution table. Note: **Apply Settings** writes the
+model's predictions to `iscell.npy` in the session folder (backing up the original to `iscell_backup_before_AI.npy`
+first), like `apply_AI.py`. The session needs an `ops.npy` that belongs to its `stat.npy`; otherwise the dashboard
+says so, and `apply_AI.py ... image` falls back to the previous model. Features are computed with the training code
+(`fe_engine/session_features.py`), so no preprocessed_cache entry is needed.
+
+Other models kept for comparison and demos: `models/image/` (44 features), `models/demo_inbar5/` (Inbar5 held out:
+small31, and the Stav-only / Inbar-only labeller pair), `models/demo_inbar7_8_11_12/small31_lgb.pkl`.

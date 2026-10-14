@@ -58,3 +58,10 @@ Feature list: results/small_model_features.json.
 Small model: 31 features beats 32 on the 5-session hold-out (+0.016 pooled F1; better or equal on every session but
 Inbar7) and is about equal on Inbar5 (0.810 vs 0.817 at its stored threshold, 0.828 vs 0.820 at the best threshold).
 Labeller demo on Inbar5 is weaker with 31 features (Inbar-only +0.004 over Stav-only, vs +0.016 with 32).
+
+## Kept after clean-up (2026-10-14)
+
+- models/final/suite2p_final31_lgb: the recommended model (31 features, all 29 clean sessions, threshold 0.70); default in apply_AI.py `image` and the dashboard.
+- models/demo_inbar5/small31_lgb, stav_only32_lgb, inbar_only32_lgb: Inbar5 demo (small model, and the labeller pair where the effect is clearest).
+- models/demo_inbar7_8_11_12/small31_lgb.
+Removed (still in git history): the other 32- and 31-feature demo models listed above.

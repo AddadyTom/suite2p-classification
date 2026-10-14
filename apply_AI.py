@@ -705,7 +705,7 @@ def _finalize_predictions(session_path, stat, F, probs, threshold, save_iscell, 
 
     return is_cell, probs, num_suppressed
 
-IMAGE_MODEL_PATH = Path(__file__).parent.resolve() / 'models' / 'image' / 'suite2p_image_lgb.pkl'
+IMAGE_MODEL_PATH = Path(__file__).parent.resolve() / 'models' / 'final' / 'suite2p_final31_lgb.pkl'
 SESSION_FEATURES_CODE = 'fe_engine.session_features.compute_session_features'
 
 def _uses_session_features(model_path):
